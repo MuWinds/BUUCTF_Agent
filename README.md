@@ -1,5 +1,5 @@
 # BUUCTF_AIAgent
-
+![image](https://github.com/MuWinds/BUUCTF_Agent/blob/main/1.png)
 ## 背景
 
 起源于[@MuWinds](https://github.com/MuWinds)闲来无事，所以打算写个Ai Agent练手
