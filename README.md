@@ -27,11 +27,11 @@ git clone https://github.com/MuWinds/BUUCTF_Agent.git
 pip install -r .\requirements.txt
 ```
 3. Docker容器配置（可选）：这一步是配置Agent的执行环境，可以自己配虚拟机也可以用仓库里现成的Dockerfile，如果用docker的方式配置请提前安装好Docker   
-   先制作镜像:
+   (1)先制作镜像:
    ```bash
    docker build -t ctf_agent .
    ```
-   再运行镜像，将镜像内ssh所用的22端口映射到宿主机的2201端口：
+   (2)再运行镜像，将镜像内ssh所用的22端口映射到宿主机的2201端口：
    ```bash
    docker run -itd -p 2201:22 ctf_agent
    ```
