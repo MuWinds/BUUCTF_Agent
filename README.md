@@ -26,7 +26,7 @@ git clone https://github.com/MuWinds/BUUCTF_Agent.git
 ```
 pip install -r .\requirements.txt
 ```
-3. Docker容器配置（可选）：这一步是配置Agent的执行环境，可以自己配虚拟机也可以用仓库里现成的Dockerfile，如果用docker的方式配置请提前安装好Docker
+3. Docker容器配置（可选）：这一步是配置Agent的执行环境，可以自己配虚拟机也可以用仓库里现成的Dockerfile，如果用docker的方式配置请提前安装好Docker   
    先制作镜像:
    ```bash
    docker build -t ctf_agent .
@@ -36,8 +36,8 @@ pip install -r .\requirements.txt
    docker run -itd -p 2201:22 ctf_agent
    ```
    如果用仓库里Dockerfile去创建Docker容器，SSH用户为root，密码为ctfagent。
-4. 修改配置文件：config.json，修改工具的配置文件
-5. 运行：
+5. 修改配置文件：config.json，修改工具的配置文件
+6. 运行：
 ```
 python .\main.py
 ```
