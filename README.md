@@ -1,4 +1,4 @@
-# BUUCTF_AIAgent
+# BUUCTF_Agent
 ![image](https://github.com/MuWinds/BUUCTF_Agent/blob/main/1.png)
 ## 背景
 
