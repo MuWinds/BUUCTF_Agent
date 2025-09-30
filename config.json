@@ -1,0 +1,17 @@
+{
+    "model": "",
+    "api_key": "",
+    "api_base": "",
+    "tool_config":{
+        "ssh_shell": 
+        {
+            "host": "127.0.0.1",
+            "port": 22,
+            "username": "",
+            "password": ""
+        },
+        "python":
+        {
+        }
+    }
+}
