@@ -74,12 +74,6 @@ class SolveAgent:
                             print(f"已加载工具: {tool_name}")
                 except Exception as e:
                     print(f"加载工具{module_name}失败: {str(e)}")
-        
-        # 确保基础工具存在
-        required_tools = ["execute_shell_command", "execute_python_code"]
-        for tool_name in required_tools:
-            if tool_name not in self.tools:
-                print(f"警告: 未找到必需工具 {tool_name}")
 
     def solve(self, problem_class: str, solution_plan: str) -> str:
         """
