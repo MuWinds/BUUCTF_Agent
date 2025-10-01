@@ -46,7 +46,7 @@ class SSHShell(BaseTool):
             "type": "function",
             "function": {
                 "name": "execute_shell_command",
-                "description": "在远程服务器上执行Shell命令",
+                "description": "在远程服务器上执行Shell命令，服务器内提供了curl,sqlmap,nmap,openssl等常用工具",
                 "parameters": {
                     "type": "object",
                     "properties": {
