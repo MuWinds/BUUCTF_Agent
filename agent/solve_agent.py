@@ -103,9 +103,6 @@ class SolveAgent:
             purpose = arguments.get("purpose", "未指定目的")
             content = arguments.get("content", "")
             
-            print(f"使用工具: {tool_name}")
-            print(f"命令目的: {purpose}")
-            print(f"执行命令: {content}")
             # 手动模式：需要用户批准命令
             if not self.auto_mode:
                 approved, next_step = self.manual_approval_step(next_step)
@@ -117,7 +114,10 @@ class SolveAgent:
                 arguments = next_step.get("arguments", {})
                 purpose = arguments.get("purpose", "未指定目的")
                 content = arguments.get("content", "")
-            
+            else:
+                print(f"使用工具: {tool_name}")
+                print(f"命令目的: {purpose}")
+                print(f"执行命令: {content}")
             # 执行命令
             output = ""
             if tool_name in self.tools:
@@ -169,44 +169,43 @@ class SolveAgent:
                 return "未找到flag：提前终止"
 
     def manual_approval_step(self, next_step: Dict) -> Tuple[bool, Optional[Dict]]:
-        """手动模式：让用户批准或修改命令/代码"""
-        arguments = next_step.get("arguments", {})
-        purpose = arguments.get("purpose", "未指定目的")
-        
+        """手动模式：让用户无限次反馈/重思，直到 ta 主动选 1 或 3"""
         while True:
-            print("\n请选择操作:")
+            arguments = next_step.get("arguments", {})
+            purpose = arguments.get("purpose", "未指定目的")
+            content = arguments.get("content", "")
+
+            print("\n-----------------------------")
+            print(f"目的: {purpose}")
+            print(f"命令/代码:\n {content}")
+            print("-----------------------------")
             print("1. 批准并执行")
             print("2. 提供反馈并重新思考")
             print("3. 终止解题")
-            
             choice = input("请输入选项编号: ").strip()
-            
+
             if choice == "1":
                 return True, next_step
             elif choice == "2":
                 feedback = input("请提供改进建议: ").strip()
+                # 仅重思，不立即执行
                 next_step = self.regenerate_with_feedback(purpose, feedback)
                 if not next_step:
-                    print("思考失败，请重试")
-                else:
-                    print("已根据反馈思考完成")
-                    return True, next_step
+                    print("（思考失败，可继续反馈或选 3 终止）")
+                # **此处不再 return**，循环回到菜单让用户再次判断
             elif choice == "3":
                 return False, None
             else:
                 print("无效选项，请重新选择")
-
+                
     def regenerate_with_feedback(self, purpose: str, feedback: str) -> Dict:
         """
         根据用户反馈重新生成命令
-        :param purpose: 原始命令目的
-        :param feedback: 用户反馈
-        :return: 重新生成的命令
+        返回的是“LLM 重新思考后的 next_step”，
+        后续仍需回到 manual_approval_step 让用户再次确认。
         """
-        # 获取记忆摘要
         history_summary = self.memory.get_summary()
-        
-        # 使用Jinja2渲染提示
+
         template = self.env.from_string(self.prompt.get("regenerate_with_feedback", ""))
         prompt = template.render(
             original_purpose=purpose,
@@ -214,8 +213,7 @@ class SolveAgent:
             history_summary=history_summary,
             tools=self.tools.values()
         )
-        
-        # 调用LLM重新生成命令
+
         response = litellm.completion(
             model=self.config["model"],
             api_key=self.config["api_key"],
@@ -224,8 +222,8 @@ class SolveAgent:
             tools=self.function_configs,
             tool_choice="auto"
         )
-        
-        # 解析LLM响应为命令
+
+        # 可能解析失败，返回 None 让外层感知
         return self.parse_tool_call(response)
 
     def generate_next_step(self, problem_class: str, solution_plan: str) -> Dict:
