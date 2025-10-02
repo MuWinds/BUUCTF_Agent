@@ -77,17 +77,26 @@ def function_config(self) -> Dict:
     return {
         "type": "function",
         "function": {
-            "name": "execute_shell_command",
-            "description": "在远程服务器上执行Shell命令",
+            "name": "execute_python_code",
+            "description": "执行Python代码片段",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "purpose": {
+                        "type": "string",
+                        "description": "执行此步骤的目的"
+                    },
                     "content": {
                         "type": "string",
-                        "description": "要执行的Shell命令"
+                        "description": "要执行的Python代码"
+                    },
+                    "remote": {
+                        "type": "boolean",
+                        "description": "是否在远程服务器执行，默认为False",
+                        "default": False
                     }
                 },
-                "required": ["content"]
+                "required": ["purpose", "content"]
             }
         }
     }

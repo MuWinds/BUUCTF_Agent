@@ -117,7 +117,7 @@ class SolveAgent:
             else:
                 print(f"使用工具: {tool_name}")
                 print(f"命令目的: {purpose}")
-                print(f"执行命令: {content}")
+                print(f"执行命令:\n{content}")
             # 执行命令
             output = ""
             if tool_name in self.tools:
@@ -192,7 +192,6 @@ class SolveAgent:
                 next_step = self.regenerate_with_feedback(purpose, feedback)
                 if not next_step:
                     print("（思考失败，可继续反馈或选 3 终止）")
-                # **此处不再 return**，循环回到菜单让用户再次判断
             elif choice == "3":
                 return False, None
             else:

@@ -54,6 +54,10 @@ class PythonTool(BaseTool):
                 "parameters": {
                     "type": "object",
                     "properties": {
+                        "purpose": {
+                            "type": "string",
+                            "description": "执行此步骤的目的"
+                        },
                         "content": {
                             "type": "string",
                             "description": "要执行的Python代码"
@@ -64,7 +68,7 @@ class PythonTool(BaseTool):
                             "default": False
                         }
                     },
-                    "required": ["content"]
+                    "required": ["purpose", "content"]
                 }
             }
         }

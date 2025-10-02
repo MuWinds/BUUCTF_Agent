@@ -11,13 +11,15 @@ RUN apt-get update && \
         curl \
         wget \
         nmap \
+        hashcat \
+        john \
         sqlmap\
         sudo && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 # 安装sqlmap和Python requests包
-RUN pip3 install sqlmap requests
+RUN pip3 install sqlmap requests pycryptodome
 
 # 配置SSH
 RUN mkdir /var/run/sshd && \
