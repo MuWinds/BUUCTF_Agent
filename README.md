@@ -100,8 +100,8 @@ def function_config(self) -> Dict:
     return {
         "type": "function",
         "function": {
-            "name": "execute_python_code",
-            "description": "执行Python代码片段",
+            "name": "execute_shell_command",
+            "description": "在远程服务器上执行Shell命令，服务器内提供了curl,sqlmap,nmap,openssl等常用工具",,
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -111,14 +111,8 @@ def function_config(self) -> Dict:
                     },
                     "content": {
                         "type": "string",
-                        "description": "要执行的Python代码"
+                        "description": "要执行的shell命令"
                     },
-                    "remote": {
-                        "type": "boolean",
-                        "description": "是否在远程服务器执行，默认为False",
-                        "default": False
-                    }
-                },
                 "required": ["purpose", "content"]
             }
         }
