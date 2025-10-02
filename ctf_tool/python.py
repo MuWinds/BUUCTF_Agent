@@ -9,13 +9,26 @@ import os
 import time
 
 class PythonTool(BaseTool):
+    def __init__(self):
+        # 在初始化时询问是否要远程执行
+        self.remote = self.ask_remote_execution()
+        if self.remote:
+            self.ssh_shell = SSHShell()
+    
+    def ask_remote_execution(self) -> bool:
+        """询问用户是否要远程执行"""
+        print("\n--- Python 执行选项 ---")
+        print("1. 本地执行")
+        print("2. 远程执行")
+        choice = input("请选择 Python 代码的执行方式 (1/2): ").strip()
+        
+        return choice == "2"
+    
     def execute(self, arguments: dict) -> Tuple[str, str]:
         """执行Python代码"""
-        # 从参数中提取必要信息
         content = arguments.get("content", "")
-        remote = arguments.get("remote", False)
         
-        if remote and self.ssh_shell:
+        if self.remote:
             return self._execute_remotely(content)
         return self._execute_locally(content)
     
@@ -37,11 +50,14 @@ class PythonTool(BaseTool):
             return "", str(e)
     
     def _execute_remotely(self, content: str) -> Tuple[str, str]:
+        if self.ssh_shell is None:
+            return "", "错误：未配置SSH，无法远程执行"
+        
         temp_name = f"/tmp/py_script_{int(time.time())}.py"
         upload_cmd = f"cat > {temp_name} << 'EOF'\n{content}\nEOF"
-        self.ssh_shell.execute_command(upload_cmd)
-        stdout, stderr = self.ssh_shell.execute_command(f"python3 {temp_name}")
-        self.ssh_shell.execute_command(f"rm -f {temp_name}")
+        self.ssh_shell.execute(upload_cmd)
+        stdout, stderr = self.ssh_shell.execute(f"python3 {temp_name}")
+        self.ssh_shell.execute(f"rm -f {temp_name}")
         return stdout, stderr
     
     @property
@@ -61,11 +77,6 @@ class PythonTool(BaseTool):
                         "content": {
                             "type": "string",
                             "description": "要执行的Python代码"
-                        },
-                        "remote": {
-                            "type": "boolean",
-                            "description": "是否在远程服务器执行，默认为False",
-                            "default": False
                         }
                     },
                     "required": ["purpose", "content"]

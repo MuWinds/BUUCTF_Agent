@@ -59,7 +59,7 @@ class SSHShell(BaseTool):
                             "description": "要执行的Shell命令"
                         }
                     },
-                    "required": ["content"]
+                    "required": ["content","purpose"]
                 }
             }
         }
