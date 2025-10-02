@@ -351,7 +351,7 @@ class SolveAgent:
                         # JSON解析失败，尝试修复
                         print(f"JSON解析失败: {str(e)}，尝试修复...")
                         fixed_json = utils.fix_json_with_llm(
-                            json_str.group(0), config=self.config
+                            json_str.group(0), err_content=e, config=self.config
                         )
                         if fixed_json:
                             llm_output = fixed_json

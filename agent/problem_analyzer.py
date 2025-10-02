@@ -44,4 +44,4 @@ class ProblemAnalyzer:
                 # 调用 utils 修复
                 print("修复json中：" + str(e))
                 print(msg_result)
-                msg_result = utils.fix_json_with_llm(msg_result, self.config)
+                msg_result = utils.fix_json_with_llm(msg_result,err_content=e,config=self.config)

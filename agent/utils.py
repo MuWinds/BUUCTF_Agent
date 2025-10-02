@@ -1,6 +1,6 @@
 import litellm
 
-def fix_json_with_llm(json_str: str, config: dict) -> dict:
+def fix_json_with_llm(json_str: str, err_content: str, config: dict) -> dict:
     """
     使用LLM修复格式错误的JSON
     :param json_str: 格式错误的JSON字符串
