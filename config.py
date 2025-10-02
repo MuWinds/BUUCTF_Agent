@@ -1,5 +1,7 @@
 import json
 import os
+
+
 class Config:
     def __init__(self, config_path="./config.json"):
         self.config_path = config_path
@@ -19,8 +21,7 @@ class Config:
                 "model": "",
                 "api_key": "",
                 "api_base": "",
-                "tool_config": {
-                }
+                "tool_config": {},
             }
             with open(config_path, "w", encoding="utf-8") as f:
                 json.dump(default_config, f, indent=4)

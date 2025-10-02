@@ -9,52 +9,82 @@ import importlib
 from ctf_tool.base_tool import BaseTool
 from typing import Dict, Tuple, Optional, List
 from .memory import Memory
+from . import utils
 from jinja2 import Environment, FileSystemLoader
+
 
 class SolveAgent:
     def __init__(self, config: dict):
         self.config = config
+        litellm.enable_json_schema_validation = True
         self.prompt = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         if self.config is None:
             raise ValueError("找不到配置文件")
-        
+
         # 初始化Jinja2模板环境
-        self.env = Environment(loader=FileSystemLoader('.'))
-        
+        self.env = Environment(loader=FileSystemLoader("."))
+
         # 初始化记忆系统
         self.memory = Memory(
             config=self.config,
             max_steps=self.config.get("max_history_steps", 10),
-            compression_threshold=self.config.get("compression_threshold", 5)
+            compression_threshold=self.config.get("compression_threshold", 5),
         )
-        
+
         # 动态加载工具
         self.tools: Dict[str, BaseTool] = {}  # 工具名称 -> 工具实例
         self.function_configs: List[Dict] = []  # 函数调用配置列表
-        
+
         # 加载ctf_tools文件夹中的所有工具
         self._load_tools()
-        
+
         # 添加模式设置
-        self.auto_mode = self.config.get("auto_mode", True)  # 默认为自动模式
+        self._select_mode()
 
         # 添加flag确认回调函数
         self.confirm_flag_callback = None  # 将由Workflow设置
 
+    def _select_mode(self):
+        """让用户选择运行模式"""
+        print("\n请选择运行模式:")
+        print("1. 自动模式（Agent自动生成和执行所有命令）")
+        print("2. 手动模式（每一步需要用户批准）")
+
+        while True:
+            choice = input("请输入选项编号: ").strip()
+            if choice == "1":
+                self.auto_mode = True
+                print("已选择自动模式")
+                return
+            elif choice == "2":
+                self.auto_mode = False
+                print("已选择手动模式")
+                return
+            else:
+                print("无效选项，请重新选择")
+
     def _load_tools(self):
         """动态加载tool文件夹中的所有工具"""
         tools_dir = os.path.join(os.path.dirname(__file__), "..", "ctf_tool")
-        
+
         for file_name in os.listdir(tools_dir):
-            if file_name.endswith(".py") and file_name != "__init__.py" and file_name != "base_tool.py":
+            if (
+                file_name.endswith(".py")
+                and file_name != "__init__.py"
+                and file_name != "base_tool.py"
+            ):
                 module_name = file_name[:-3]  # 移除.py
                 try:
                     # 导入模块
                     module = importlib.import_module(f"ctf_tool.{module_name}")
-                    
+
                     # 查找所有继承自BaseTool的类
                     for name, obj in inspect.getmembers(module):
-                        if inspect.isclass(obj) and issubclass(obj, BaseTool) and obj != BaseTool:
+                        if (
+                            inspect.isclass(obj)
+                            and issubclass(obj, BaseTool)
+                            and obj != BaseTool
+                        ):
                             # 检查是否需要特殊配置
                             if name in self.config.get("tool_config", {}):
                                 # 使用配置创建实例
@@ -63,14 +93,16 @@ class SolveAgent:
                             else:
                                 # 创建默认实例
                                 tool_instance = obj()
-                            
+
                             # 添加到工具字典
-                            tool_name = tool_instance.function_config["function"]["name"]
+                            tool_name = tool_instance.function_config["function"][
+                                "name"
+                            ]
                             self.tools[tool_name] = tool_instance
-                            
+
                             # 添加工具配置
                             self.function_configs.append(tool_instance.function_config)
-                            
+
                             print(f"已加载工具: {tool_name}")
                 except Exception as e:
                     print(f"加载工具{module_name}失败: {str(e)}")
@@ -83,11 +115,11 @@ class SolveAgent:
         :return: 获取的flag
         """
         step_count = 0
-        
+
         while True:
             step_count += 1
             print(f"\n正在思考第 {step_count} 步...")
-            
+
             # 生成下一步执行命令
             next_step = None
             while next_step is None:
@@ -96,13 +128,13 @@ class SolveAgent:
                     break
                 print("生成执行内容失败，10秒后重试...")
                 time.sleep(10)
-            
+
             # 提取工具名称和参数
             tool_name = next_step.get("tool_name")
             arguments = next_step.get("arguments", {})
             purpose = arguments.get("purpose", "未指定目的")
             content = arguments.get("content", "")
-            
+
             # 手动模式：需要用户批准命令
             if not self.auto_mode:
                 approved, next_step = self.manual_approval_step(next_step)
@@ -133,36 +165,37 @@ class SolveAgent:
                     output = f"工具执行出错: {str(e)}"
             else:
                 output = f"错误: 未找到工具 '{tool_name}'"
-            
+
             print(f"命令输出:\n{output}")
-            
+
             # 使用LLM分析输出
             analysis_result = self.analyze_step_output(
-                step_count, 
-                content, 
-                output, 
-                solution_plan
+                step_count, content, output, solution_plan
             )
-            
+
             # 检查LLM是否在输出中发现了flag
             if analysis_result.get("flag_found", False):
                 flag_candidate = analysis_result.get("flag", "")
                 print(f"LLM报告发现flag: {flag_candidate}")
-                
+
                 # 使用回调函数确认flag
-                if self.confirm_flag_callback and self.confirm_flag_callback(flag_candidate):
+                if self.confirm_flag_callback and self.confirm_flag_callback(
+                    flag_candidate
+                ):
                     return flag_candidate
                 else:
                     print("用户确认flag不正确，继续解题")
-            
+
             # 添加执行历史到记忆系统
-            self.memory.add_step({
-                "step": step_count,
-                "content": content,
-                "output": output,
-                "analysis": analysis_result
-            })
-            
+            self.memory.add_step(
+                {
+                    "step": step_count,
+                    "content": content,
+                    "output": output,
+                    "analysis": analysis_result,
+                }
+            )
+
             # 检查是否应该提前终止
             if analysis_result.get("terminate", False):
                 print("LLM建议提前终止解题")
@@ -196,7 +229,7 @@ class SolveAgent:
                 return False, None
             else:
                 print("无效选项，请重新选择")
-                
+
     def regenerate_with_feedback(self, purpose: str, feedback: str) -> Dict:
         """
         根据用户反馈重新生成命令
@@ -210,7 +243,7 @@ class SolveAgent:
             original_purpose=purpose,
             feedback=feedback,
             history_summary=history_summary,
-            tools=self.tools.values()
+            tools=self.tools.values(),
         )
 
         response = litellm.completion(
@@ -219,7 +252,7 @@ class SolveAgent:
             api_base=self.config["api_base"],
             messages=[{"role": "user", "content": prompt}],
             tools=self.function_configs,
-            tool_choice="auto"
+            tool_choice="auto",
         )
 
         # 可能解析失败，返回 None 让外层感知
@@ -234,20 +267,20 @@ class SolveAgent:
         """
         # 获取记忆摘要
         history_summary = self.memory.get_summary()
-        
+
         # 根据题目类别选择不同的prompt模板
         prompt_key = problem_class.lower() + "_next"
         if prompt_key not in self.prompt:
             prompt_key = "general_next"
-        
+
         # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get(prompt_key, ""))
         prompt = template.render(
             solution_plan=solution_plan,
             history_summary=history_summary,
-            tools=self.tools.values()
+            tools=self.tools.values(),
         )
-        
+
         # 调用LLM生成下一步动作
         response = litellm.completion(
             model=self.config["model"],
@@ -255,21 +288,21 @@ class SolveAgent:
             api_base=self.config["api_base"],
             messages=[{"role": "user", "content": prompt}],
             tools=self.function_configs,
-            tool_choice="auto"
+            tool_choice="auto",
         )
-        
+
         # 解析工具调用响应
         return self.parse_tool_call(response)
-    
+
     def parse_tool_call(self, response) -> Dict:
         """解析工具调用响应"""
         message = response.choices[0].message
-        
+
         # 检查是否有工具调用
-        if not hasattr(message, 'tool_calls') or not message.tool_calls:
+        if not hasattr(message, "tool_calls") or not message.tool_calls:
             # 没有工具调用时尝试解析JSON
             return self.parse_next_step(message.content)
-        
+
         # 处理第一个工具调用
         tool_call = message.tool_calls[0]
         func_name = tool_call.function.name
@@ -277,37 +310,35 @@ class SolveAgent:
             args = json.loads(tool_call.function.arguments)
         except json.JSONDecodeError:
             args = {}
-        
+
         # 确保参数中包含purpose和content
         args.setdefault("purpose", "执行操作")
         args.setdefault("content", "")
-        
-        return {
-            "tool_name": func_name,
-            "arguments": args
-        }
+
+        return {"tool_name": func_name, "arguments": args}
 
     def parse_next_step(self, llm_output: str, max_retries: int = 3) -> Dict:
         """解析LLM输出的下一步命令，增加重试和修复机制"""
         while True:
             try:
                 # 尝试提取JSON部分
-                json_str = re.search(r'\{.*\}', llm_output, re.DOTALL)
+                json_str = re.search(r"\{.*\}", llm_output, re.DOTALL)
                 if json_str:
                     try:
                         data = json.loads(json_str.group(0))
                         # 检查是否包含tool_calls数组
-                        if "tool_calls" in data and isinstance(data["tool_calls"], list) and len(data["tool_calls"]) > 0:
+                        if (
+                            "tool_calls" in data
+                            and isinstance(data["tool_calls"], list)
+                            and len(data["tool_calls"]) > 0
+                        ):
                             tool_call = data["tool_calls"][0]
                             func_name = tool_call.get("name")
                             args = tool_call.get("arguments", {})
                             # 确保参数中包含purpose和content
                             args.setdefault("purpose", "执行操作")
                             args.setdefault("content", "")
-                            return {
-                                "tool_name": func_name,
-                                "arguments": args
-                            }
+                            return {"tool_name": func_name, "arguments": args}
                         else:
                             # 直接包含tool_name和arguments
                             result = data
@@ -319,14 +350,16 @@ class SolveAgent:
                     except json.JSONDecodeError as e:
                         # JSON解析失败，尝试修复
                         print(f"JSON解析失败: {str(e)}，尝试修复...")
-                        fixed_json = self.fix_json_format(json_str.group(0))
+                        fixed_json = utils.fix_json_with_llm(
+                            json_str.group(0), config=self.config
+                        )
                         if fixed_json:
                             llm_output = fixed_json
                             continue
                 else:
                     # 没有找到JSON，尝试让LLM修复
                     print("未找到JSON结构，尝试修复...")
-                    fixed_output = self.fix_missing_json(llm_output)
+                    fixed_output = llm_output
                     if fixed_output:
                         llm_output = fixed_output
                         retries += 1
@@ -336,28 +369,9 @@ class SolveAgent:
                 retries += 1
                 continue
 
-    def fix_json_format(self, json_str: str) -> str:
-        """使用LLM修复格式错误的JSON"""
-        prompt = (
-            "以下是一个格式错误的JSON字符串，请修复它使其成为有效的JSON。"
-            "只返回修复后的JSON，不要包含任何其他内容。"
-            "确保保留所有原始键值对。\n\n"
-            f"错误JSON: {json_str}"
-        )
-        try:
-            response = litellm.completion(
-                model=self.config["model"],
-                api_key=self.config["api_key"],
-                api_base=self.config["api_base"],
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=512
-            )
-            return response.choices[0].message.content.strip()
-        except Exception as e:
-            print(f"修复JSON失败: {str(e)}")
-            return ""
-
-    def analyze_step_output(self, step_num: int, content: str, output: str, solution_plan: str) -> Dict:
+    def analyze_step_output(
+        self, step_num: int, content: str, output: str, solution_plan: str
+    ) -> Dict:
         """
         使用LLM分析步骤输出
         :param step_num: 步骤编号
@@ -368,17 +382,17 @@ class SolveAgent:
         """
         # 获取记忆摘要
         history_summary = self.memory.get_summary()
-        
+
         # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("step_analysis", ""))
         prompt = template.render(
             step_num=step_num,
             content=content,
-            output=output[:2048],
+            output=output[:4096],
             solution_plan=solution_plan,
-            history_summary=history_summary
+            history_summary=history_summary,
         )
-        
+
         # 调用LLM进行分析
         response = litellm.completion(
             model=self.config["model"],
@@ -386,20 +400,22 @@ class SolveAgent:
             api_base=self.config["api_base"],
             messages=[{"role": "user", "content": prompt}],
         )
-        
+
         # 解析分析结果
         try:
-            json_str = re.search(r'\{.*\}', response.choices[0].message.content, re.DOTALL)
+            json_str = re.search(
+                r"\{.*\}", response.choices[0].message.content, re.DOTALL
+            )
             if json_str:
                 return json.loads(json_str.group(0))
         except (json.JSONDecodeError, KeyError):
             pass
-        
+
         # 解析失败时返回默认结果
         return {
             "analysis": "分析失败",
             "terminate": False,
             "recommendations": "继续执行",
             "flag_found": False,
-            "flag": ""
+            "flag": "",
         }

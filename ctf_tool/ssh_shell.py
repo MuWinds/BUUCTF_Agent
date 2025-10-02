@@ -3,6 +3,7 @@ from config import Config
 from ctf_tool.base_tool import BaseTool
 import paramiko
 
+
 class SSHShell(BaseTool):
     def __init__(self):
         tool_config = Config.get_tool_config("ssh_shell")
@@ -20,26 +21,26 @@ class SSHShell(BaseTool):
         client.connect(hostname, port, username, password)
         return client
 
-    def execute(self, arguments:dict):
+    def execute(self, arguments: dict):
         # 从参数中提取命令内容
         command = arguments.get("content", "")
-        
+
         _, stdout, stderr = self.ssh_client.exec_command(command)
-        
+
         # 直接读取字节数据，不立即解码
         stdout_bytes = stdout.read()
         stderr_bytes = stderr.read()
-        
+
         # 尝试UTF-8解码，失败时使用错误处理
         def safe_decode(data):
             try:
-                return data.decode('utf-8')
+                return data.decode("utf-8")
             except UnicodeDecodeError:
                 # 用占位符替换无效字节
-                return data.decode('utf-8', errors='replace')
-        
+                return data.decode("utf-8", errors="replace")
+
         return safe_decode(stdout_bytes), safe_decode(stderr_bytes)
-    
+
     @property
     def function_config(self) -> Dict:
         return {
@@ -52,14 +53,14 @@ class SSHShell(BaseTool):
                     "properties": {
                         "purpose": {
                             "type": "string",
-                            "description": "执行此步骤的目的"
+                            "description": "执行此步骤的目的",
                         },
                         "content": {
                             "type": "string",
-                            "description": "要执行的Shell命令"
-                        }
+                            "description": "要执行的Shell命令",
+                        },
                     },
-                    "required": ["content","purpose"]
-                }
-            }
+                    "required": ["content", "purpose"],
+                },
+            },
         }

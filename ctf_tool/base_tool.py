@@ -3,12 +3,13 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Tuple
 
+
 class BaseTool(ABC):
     @abstractmethod
     def execute(self, *args, **kwargs) -> Tuple[str, str]:
         """执行工具操作"""
         pass
-    
+
     @property
     @abstractmethod
     def function_config(self) -> Dict:
