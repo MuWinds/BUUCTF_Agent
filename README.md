@@ -36,8 +36,29 @@ pip install -r .\requirements.txt
    docker run -itd -p 2201:22 ctf_agent
    ```
    如果用仓库里Dockerfile去创建Docker容器，SSH用户为root，密码为ctfagent。
-5. 修改配置文件：config.json，修改工具的配置文件
-6. 运行：
+4. 修改配置文件：config.json，修改工具的配置文件
+   下面是是硅基流动API（OpenAI兼容模式的配置示例：）
+   ```json
+   {
+    "model": "openai/deepseek-ai/DeepSeek-V3.1-Terminus",
+    "api_key": "",
+    "api_base": "https://api.siliconflow.cn/v1",
+    "tool_config":{
+        "ssh_shell": 
+        {
+            "host": "127.0.0.1",
+            "port": 2201,
+            "username": "root",
+            "password": ""
+        },
+        "python":
+        {
+        }
+    }
+   }
+   ```
+   本项目采用litellm与大模型进行对接，因此，如果要使用openai兼容的api模型，需要在model值前加openai/，即原来是`deepseek-ai/DeepSeek-V3.1-Terminus`，需要改成`openai/deepseek-ai/DeepSeek-V3.1-Terminus`
+5. 运行：
 ```
 python .\main.py
 ```
