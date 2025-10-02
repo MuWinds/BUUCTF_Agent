@@ -54,10 +54,23 @@ class PythonTool(BaseTool):
             return "", "错误：未配置SSH，无法远程执行"
         
         temp_name = f"/tmp/py_script_{int(time.time())}.py"
+        
+        # 修复：使用字典参数调用execute方法
         upload_cmd = f"cat > {temp_name} << 'EOF'\n{content}\nEOF"
-        self.ssh_shell.execute(upload_cmd)
-        stdout, stderr = self.ssh_shell.execute(f"python3 {temp_name}")
-        self.ssh_shell.execute(f"rm -f {temp_name}")
+        self.ssh_shell.execute({"content": upload_cmd, "purpose": "上传Python脚本"})
+        
+        # 修复：使用字典参数调用execute方法
+        stdout, stderr = self.ssh_shell.execute({
+            "content": f"python3 {temp_name}", 
+            "purpose": "执行Python脚本"
+        })
+        
+        # 修复：使用字典参数调用execute方法
+        self.ssh_shell.execute({
+            "content": f"rm -f {temp_name}", 
+            "purpose": "清理临时文件"
+        })
+        
         return stdout, stderr
     
     @property

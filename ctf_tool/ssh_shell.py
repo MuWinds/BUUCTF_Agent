@@ -20,7 +20,7 @@ class SSHShell(BaseTool):
         client.connect(hostname, port, username, password)
         return client
 
-    def execute(self, arguments):
+    def execute(self, arguments:dict):
         # 从参数中提取命令内容
         command = arguments.get("content", "")
         
