@@ -205,7 +205,7 @@ class Memory:
                 if "output" in step:
                     output = step["output"]
                     summary += (
-                        f"- 输出: {output[:4096]}{'...' if len(output) > 4096 else ''}\n"
+                        f"- 输出: {output[:512]}{'...' if len(output) > 512 else ''}\n"
                     )
 
                 if "analysis" in step:

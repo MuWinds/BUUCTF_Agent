@@ -8,7 +8,6 @@ class SSHShell(BaseTool):
     def __init__(self):
         tool_config = Config.get_tool_config("ssh_shell")
         ssh_config = tool_config.get("ssh_shell", {})
-        print(ssh_config)
         hostname = ssh_config.get("host")
         port = ssh_config.get("port", 22)
         username = ssh_config.get("username")

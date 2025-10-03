@@ -1,6 +1,9 @@
 # 基于Ubuntu 22.04
 FROM ubuntu:22.04
 
+# 预先配置debconf以自动回答tshark的安装问题
+RUN echo "wireshark-common wireshark-common/install-setuid boolean true" | debconf-set-selections
+
 # 安装基础工具和SSH服务
 RUN apt-get update && \
     apt-get install -y \
@@ -12,6 +15,7 @@ RUN apt-get update && \
         wget \
         nmap \
         hashcat \
+        tshark \
         john \
         sqlmap\
         sudo && \

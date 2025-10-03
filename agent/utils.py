@@ -1,4 +1,5 @@
 import litellm
+import json
 
 def fix_json_with_llm(json_str: str, err_content: str, config: dict) -> dict:
     """
@@ -12,16 +13,19 @@ def fix_json_with_llm(json_str: str, err_content: str, config: dict) -> dict:
         "只返回修复后的JSON，不要包含任何其他内容。"
         "确保保留所有原始键值对，不要改动里面的内容\n\n"
         f"错误JSON: {json_str}"
+        f"错误信息: {err_content}"
     )
     
-    try:
+    while True:
         response = litellm.completion(
             model=config["model"],
             api_key=config["api_key"],
             api_base=config["api_base"],
             messages=[{"role": "user", "content": prompt}],
         )
-        fixed_json = response.choices[0].message.content.strip()
-        return fixed_json
-    except Exception:
-        return {}
+        fixed_json = response.choices[0].message.content
+        try:
+            json.loads(fixed_json)
+            return fixed_json
+        except:
+            continue

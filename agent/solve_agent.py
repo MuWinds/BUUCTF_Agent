@@ -7,6 +7,7 @@ import os
 import inspect
 import importlib
 from ctf_tool.base_tool import BaseTool
+from litellm import ModelResponse
 from typing import Dict, Tuple, Optional, List
 from .memory import Memory
 from . import utils
@@ -156,11 +157,8 @@ class SolveAgent:
                 try:
                     tool = self.tools[tool_name]
                     result = tool.execute(arguments)
-                    if isinstance(result, tuple) and len(result) == 2:
-                        stdout, stderr = result
-                        output = stdout + stderr
-                    else:
-                        output = str(result)
+                    stdout, stderr = result
+                    output = stdout + stderr
                 except Exception as e:
                     output = f"工具执行出错: {str(e)}"
             else:
@@ -204,14 +202,14 @@ class SolveAgent:
     def manual_approval_step(self, next_step: Dict) -> Tuple[bool, Optional[Dict]]:
         """手动模式：让用户无限次反馈/重思，直到 ta 主动选 1 或 3"""
         while True:
-            arguments = next_step.get("arguments", {})
+            tool_name = next_step.get("tool_name")
+            arguments: dict = next_step.get("arguments", {})
             purpose = arguments.get("purpose", "未指定目的")
             content = arguments.get("content", "")
 
-            print("\n-----------------------------")
+            print(f"使用工具: {tool_name}")
             print(f"目的: {purpose}")
             print(f"命令/代码:\n {content}")
-            print("-----------------------------")
             print("1. 批准并执行")
             print("2. 提供反馈并重新思考")
             print("3. 终止解题")
@@ -294,7 +292,7 @@ class SolveAgent:
         # 解析工具调用响应
         return self.parse_tool_call(response)
 
-    def parse_tool_call(self, response) -> Dict:
+    def parse_tool_call(self, response: ModelResponse) -> Dict:
         """解析工具调用响应"""
         message = response.choices[0].message
 
@@ -308,8 +306,8 @@ class SolveAgent:
         func_name = tool_call.function.name
         try:
             args = json.loads(tool_call.function.arguments)
-        except json.JSONDecodeError:
-            args = {}
+        except json.JSONDecodeError as e:
+            args = utils.fix_json_with_llm(tool_call.function.arguments, e, self.config)
 
         # 确保参数中包含purpose和content
         args.setdefault("purpose", "执行操作")
@@ -317,57 +315,32 @@ class SolveAgent:
 
         return {"tool_name": func_name, "arguments": args}
 
-    def parse_next_step(self, llm_output: str, max_retries: int = 3) -> Dict:
+    def parse_next_step(self, llm_output: str) -> Dict:
         """解析LLM输出的下一步命令，增加重试和修复机制"""
         while True:
+            # 尝试提取JSON部分
             try:
-                # 尝试提取JSON部分
-                json_str = re.search(r"\{.*\}", llm_output, re.DOTALL)
-                if json_str:
-                    try:
-                        data = json.loads(json_str.group(0))
-                        # 检查是否包含tool_calls数组
-                        if (
-                            "tool_calls" in data
-                            and isinstance(data["tool_calls"], list)
-                            and len(data["tool_calls"]) > 0
-                        ):
-                            tool_call = data["tool_calls"][0]
-                            func_name = tool_call.get("name")
-                            args = tool_call.get("arguments", {})
-                            # 确保参数中包含purpose和content
-                            args.setdefault("purpose", "执行操作")
-                            args.setdefault("content", "")
-                            return {"tool_name": func_name, "arguments": args}
-                        else:
-                            # 直接包含tool_name和arguments
-                            result = data
-                            result.setdefault("tool_name", "execute_shell_command")
-                            result.setdefault("arguments", {})
-                            result["arguments"].setdefault("purpose", "执行操作")
-                            result["arguments"].setdefault("content", "")
-                            return result
-                    except json.JSONDecodeError as e:
-                        # JSON解析失败，尝试修复
-                        print(f"JSON解析失败: {str(e)}，尝试修复...")
-                        fixed_json = utils.fix_json_with_llm(
-                            json_str.group(0), err_content=e, config=self.config
-                        )
-                        if fixed_json:
-                            llm_output = fixed_json
-                            continue
-                else:
-                    # 没有找到JSON，尝试让LLM修复
-                    print("未找到JSON结构，尝试修复...")
-                    fixed_output = llm_output
-                    if fixed_output:
-                        llm_output = fixed_output
-                        retries += 1
-                        continue
-            except (json.JSONDecodeError, KeyError) as e:
-                print(f"JSON解析异常: {str(e)}")
-                retries += 1
-                continue
+                data: dict = json.loads(llm_output)
+                tool_call: dict = data["tool_calls"][0]
+                func_name = tool_call.get("name", "工具解析失败")
+                args: dict = tool_call.get("arguments", {})
+                # 确保参数中包含purpose和content
+                args.setdefault("purpose", "执行操作")
+                args.setdefault("content", "")
+                return {"tool_name": func_name, "arguments": args}
+            except json.JSONDecodeError as e:
+                # JSON解析失败，尝试修复
+                print(f"JSON解析失败: {str(e)}，尝试修复...")
+                fixed_json = utils.fix_json_with_llm(
+                    llm_output, err_content=e, config=self.config
+                )
+                if fixed_json:
+                    llm_output = fixed_json
+                    continue
+            except Exception as e:
+                # 其他异常，返回空字典
+                print(f"解析下一步命令失败: {str(e)}")
+                return {}
 
     def analyze_step_output(
         self, step_num: int, content: str, output: str, solution_plan: str
