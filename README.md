@@ -123,4 +123,5 @@ def function_config(self) -> Dict:
 既然有shell代码的执行，**请不要作死拿自己存着重要数据的机器让Agent执行代码**，我不确保大语言模型一定不会输出诸如`rm -rf /*`这种奇怪东西，因为这种操作出现的各种问题请自行认命，项目仓库给了对应的Dockerfile方便各位拿来就用。
 
 QQ群：
+
 ![image](https://github.com/MuWinds/BUUCTF_Agent/blob/main/qq_group.jpg)
