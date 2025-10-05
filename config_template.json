@@ -2,6 +2,8 @@
     "model": "",
     "api_key": "",
     "api_base": "",
+    "max_history_steps": 15,
+    "compression_threshold": 7,
     "tool_config":{
         "ssh_shell": 
         {
