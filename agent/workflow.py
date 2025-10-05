@@ -15,7 +15,7 @@ class Workflow:
         if len(question) > 128:
             question = problem_processor.summary(question)
         analysis_result = problem_processor.analyze(question)
-        logger.info(f"题目分类：{analysis_result["category"]}\n分析结果：{analysis_result["solution"]}")
+        logger.info(f"题目分类：{analysis_result['category']}\n分析结果：{analysis_result['solution']}")
 
         # 创建SolveAgent实例并设置flag确认回调
         agent = SolveAgent(self.config, question)
