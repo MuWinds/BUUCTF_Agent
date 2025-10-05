@@ -1,15 +1,19 @@
 # prompt.yaml
+problem_summary: |
+  你是一个CTF题目总结专家，现在你需要从题目中总结并提取关键信息。
+  请注意在回复的时候保留题目的关键信息，如文件路径、靶机地址等信息
+  题目内容: {question}
+
 problem_analyze: |
-  你是一个CTF题目分析专家，擅长从题目描述中提取关键信息并生成解决方案。
-  请回复的时候保留题目的关键信息，如文件路径、靶机地址等信息，方便后续步骤使用
+  你是一个CTF题目分析专家，擅长从题目描述中分析并提供解决方案。
   题目描述: {question}
   请返回题目的分类（Web/Pwn/Crypto/Forensics/Reverse）和解决思路。
   严格按照JSON格式返回：{"category": "分类", "solution": "解决思路"}
 
 web_next: |
   你是一个专业的CTF Web安全专家，需要根据解题思路和当前进展生成下一步操作。
-  解题思路:
-  {{ solution_plan }}
+  题目内容:{{ question }}
+  解题思路:{{ solution_plan }}
   执行历史:
   {{ history_summary }}
   可用工具:
@@ -40,8 +44,8 @@ web_next: |
 
 crypto_next: |
   你是一个专业的CTF密码学专家，需要根据解题思路和当前进展生成下一步操作。
-  解题思路:
-  {{ solution_plan }}
+  题目内容:{{ question }}
+  解题思路:{{ solution_plan }}
   执行历史:
   {{ history_summary }}
   可用工具:
@@ -70,8 +74,8 @@ crypto_next: |
 
 general_next: |
   你是一个专业的CTF安全专家，需要根据解题思路和当前进展生成下一步操作。
-  解题思路:
-  {{ solution_plan }}
+  题目内容：{{ question }}
+  解题思路:{{ solution_plan }}
   执行历史:
   {{ history_summary }}
   可用工具:
@@ -100,8 +104,8 @@ general_next: |
 
 step_analysis: |
   你是一个专业的CTF安全专家，正在分析解题过程中的命令输出。
-  原始解题思路:
-  {{ solution_plan }}
+  题目内容：{{ question }}
+  原始解题思路:{{ solution_plan }}
   执行历史:
   {{ history_summary }}
   当前步骤:
@@ -128,6 +132,7 @@ step_analysis: |
 
 reflection: |
   根据用户反馈重新生成命令。以下是当前情况：
+  题目内容：{{ question }}
   原始命令目的: {{ original_purpose }}
   用户反馈: {{ feedback }}
   执行历史:

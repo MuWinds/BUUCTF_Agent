@@ -1,5 +1,5 @@
 import logging
-from .problem_analyzer import ProblemAnalyzer
+from .problem_processor import ProblemProcessor
 from .solve_agent import SolveAgent
 logger = logging.getLogger(__name__)
 
@@ -10,12 +10,15 @@ class Workflow:
             raise ValueError("配置文件不存在")
 
     def solve(self, question: str) -> str:
-        # 获取题目分析结果
-        analysis_result = ProblemAnalyzer(self.config).analyze(question)
+        # 题目预处理
+        problem_processor = ProblemProcessor(self.config)
+        if len(question) > 128:
+            question = problem_processor.summary(question)
+        analysis_result = problem_processor.analyze(question)
         logger.info(f"题目分类：{analysis_result["category"]}\n分析结果：{analysis_result["solution"]}")
 
         # 创建SolveAgent实例并设置flag确认回调
-        agent = SolveAgent(self.config)
+        agent = SolveAgent(self.config, question)
         agent.confirm_flag_callback = self.confirm_flag
 
         # 将分类和解决思路传递给SolveAgent

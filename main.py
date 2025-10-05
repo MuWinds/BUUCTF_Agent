@@ -22,7 +22,7 @@ def setup_logging():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file),
-            logging.StreamHandler()
+            logging.StreamHandler(sys.stdout)
         ]
     )
     
@@ -46,6 +46,7 @@ def setup_logging():
     # 设置第三方库的日志级别
     logging.getLogger("LiteLLM").setLevel(logging.WARNING)
     logging.getLogger("paramiko").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 
 if __name__ == "__main__":

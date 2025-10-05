@@ -17,10 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 class SolveAgent:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, problem: str):
         self.config = config
+        self.problem = problem
         litellm.enable_json_schema_validation = True
-        self.prompt:dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
+        self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         if self.config is None:
             raise ValueError("找不到配置文件")
 
@@ -134,13 +135,9 @@ class SolveAgent:
 
             # 提取工具名称和参数
             tool_name = next_step.get("tool_name")
-            arguments = next_step.get("arguments", {})
-            purpose = arguments.get("purpose", "未指定目的")
+            arguments: dict = next_step.get("arguments", {})
             content = arguments.get("content", "")
 
-            logger.info(f"使用工具: {tool_name}")
-            logger.info(f"命令目的: {purpose}")
-            logger.info(f"执行命令:\n{content}")
             # 手动模式：需要用户批准命令
             if not self.auto_mode:
                 approved, next_step = self.manual_approval_step(next_step)
@@ -150,7 +147,6 @@ class SolveAgent:
                 # 更新参数
                 tool_name = next_step.get("tool_name")
                 arguments = next_step.get("arguments", {})
-                purpose = arguments.get("purpose", "未指定目的")
                 content = arguments.get("content", "")
 
             # 执行命令
@@ -233,6 +229,7 @@ class SolveAgent:
 
         template = self.env.from_string(self.prompt.get("reflection", ""))
         prompt = template.render(
+            question=self.problem,
             original_purpose=purpose,
             feedback=feedback,
             history_summary=history_summary,
@@ -249,7 +246,7 @@ class SolveAgent:
         )
 
         # 可能解析失败，返回 None 让外层感知
-        return self.parse_tool_call(response)
+        return self.parse_tool_response(response)
 
     def generate_next_step(self, problem_class: str, solution_plan: str) -> Dict:
         """
@@ -269,6 +266,7 @@ class SolveAgent:
         # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get(prompt_key, ""))
         prompt = template.render(
+            question=self.problem,
             solution_plan=solution_plan,
             history_summary=history_summary,
             tools=self.tools.values(),
@@ -285,57 +283,55 @@ class SolveAgent:
         )
 
         # 解析工具调用响应
-        return self.parse_tool_call(response)
+        return self.parse_tool_response(response)
 
-    def parse_tool_call(self, response: ModelResponse) -> Dict:
-        """解析工具调用响应"""
+    def parse_tool_response(self, response: ModelResponse) -> Dict:
+        """统一解析工具调用响应，处理两种格式的响应"""
         message = response.choices[0].message
 
-        # 检查是否有工具调用
-        if not hasattr(message, "tool_calls") or not message.tool_calls:
-            # 没有工具调用时尝试解析JSON
-            return self.parse_next_step(message.content)
-
-        # 处理第一个工具调用
-        tool_call = message.tool_calls[0]
-        func_name = tool_call.function.name
-        try:
-            args = json.loads(tool_call.function.arguments)
-        except json.JSONDecodeError as e:
-            args = utils.fix_json_with_llm(tool_call.function.arguments, e, self.config)
-
-        # 确保参数中包含purpose和content
-        args.setdefault("purpose", "执行操作")
-        args.setdefault("content", "")
-
-        return {"tool_name": func_name, "arguments": args}
-
-    def parse_next_step(self, llm_output: str) -> Dict:
-        """解析LLM输出的下一步命令，增加重试和修复机制"""
-        while True:
-            # 尝试提取JSON部分
+        # 情况1：直接工具调用格式（tool_calls）
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            tool_call = message.tool_calls[0]
+            func_name = tool_call.function.name
             try:
-                data: dict = json.loads(llm_output)
-                tool_call: dict = data["tool_calls"][0]
-                func_name = tool_call.get("name", "工具解析失败")
-                args: dict = tool_call.get("arguments", {})
-                # 确保参数中包含purpose和content
-                args.setdefault("purpose", "执行操作")
-                args.setdefault("content", "")
-                return {"tool_name": func_name, "arguments": args}
+                args = json.loads(tool_call.function.arguments)
             except json.JSONDecodeError as e:
-                # JSON解析失败，尝试修复
-                print(f"JSON解析失败: {str(e)}，尝试修复...")
-                fixed_json = utils.fix_json_with_llm(
-                    llm_output, err_content=e, config=self.config
+                args = utils.fix_json_with_llm(
+                    tool_call.function.arguments, e, self.config
                 )
-                if fixed_json:
-                    llm_output = fixed_json
-                    continue
-            except Exception as e:
-                # 其他异常，返回空字典
-                print(f"解析下一步命令失败: {str(e)}")
-                return {}
+
+            # 确保参数中包含purpose和content
+            args.setdefault("purpose", "执行操作")
+            args.setdefault("content", "")
+
+        # 情况2：JSON字符串格式
+        else:
+            content = message.content.strip()
+            # 尝试直接解析JSON
+            while True:
+                try:
+                    data = json.loads(content)
+                    if "tool_calls" in data and data["tool_calls"]:
+                        tool_call: dict = data["tool_calls"][0]
+                        func_name: dict = tool_call.get("name", "工具解析失败")
+                        args: dict = tool_call.get("arguments", {})
+                        args.setdefault("purpose", "执行操作")
+                        args.setdefault("content", "")
+                        break
+                except json.JSONDecodeError:
+                    print("无法解析工具调用响应，尝试修复")
+                    fixed_json = utils.fix_json_with_llm(content, None, self.config)
+                    if fixed_json:
+                        content = fixed_json
+                        continue
+                except Exception as e:
+                    print(f"无法解析工具调用响应：{e}")
+                    return {}
+
+        logger.info(f"使用工具: {func_name}")
+        logger.info(f"命令目的: {args['purpose']}")
+        logger.info(f"执行命令:\n{args['content']}")
+        return {"tool_name": func_name, "arguments": args}
 
     def analyze_step_output(
         self, step_num: int, content: str, output: str, solution_plan: str
@@ -354,6 +350,7 @@ class SolveAgent:
         # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("step_analysis", ""))
         prompt = template.render(
+            question=self.problem,
             step_num=step_num,
             content=content,
             output=output[:4096],
@@ -372,7 +369,7 @@ class SolveAgent:
         # 解析分析结果
         try:
             result = json.loads(response.choices[0].message.content)
-            if isinstance(result,dict):
+            if isinstance(result, dict):
                 return result
         except (json.JSONDecodeError, KeyError):
             pass
