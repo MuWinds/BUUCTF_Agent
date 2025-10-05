@@ -8,7 +8,6 @@ problem_analyze: |
 
 web_next: |
   你是一个专业的CTF Web安全专家，需要根据解题思路和当前进展生成下一步操作。
-
   解题思路:
   {{ solution_plan }}
 
@@ -147,7 +146,7 @@ step_analysis: |
       "flag": "flag字符串（如果flag_found为true）"
   }
 
-regenerate_with_feedback: |
+reflection: |
   根据用户反馈重新生成命令。以下是当前情况：
   原始命令目的: {{ original_purpose }}
   用户反馈: {{ feedback }}

@@ -52,8 +52,8 @@ class Memory:
         # 2. 提取关键命令和结果
         if "content" in step and "output" in step:
             command = step["content"]
-            output_summary = step["output"][:100] + (
-                "..." if len(step["output"]) > 100 else ""
+            output_summary = step["output"][:256] + (
+                "..." if len(step["output"]) > 256 else ""
             )
             self.key_facts[f"command:{command}"] = f"结果: {output_summary}"
 

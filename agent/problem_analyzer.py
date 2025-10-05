@@ -16,7 +16,7 @@ class ProblemAnalyzer:
 
     def analyze(self, question: str) -> str:
         """
-        分析题目，带 JSON 自动修复逻辑
+        分析题目
         :param question: 题干
         :param max_fix_round: 最多修复次数
         :return: 原始 LLM 返回字符串
@@ -35,11 +35,8 @@ class ProblemAnalyzer:
         while True:
             try:
                 analyze_result = json.loads(msg_result)
-                # 打印并返回
-                print("题目分析结果：")
-                print("分类：" + analyze_result["category"])
-                print("分析：" + analyze_result["solution"])
-                return msg_result
+                if isinstance(analyze_result,dict):
+                    return analyze_result
             except (json.JSONDecodeError, KeyError) as e:
                 # 调用 utils 修复
                 print("修复json中：" + str(e))

@@ -1,9 +1,9 @@
 import litellm
-import re
 import json
 import time
 import yaml
 import os
+import logging
 import inspect
 import importlib
 from ctf_tool.base_tool import BaseTool
@@ -13,12 +13,14 @@ from .memory import Memory
 from . import utils
 from jinja2 import Environment, FileSystemLoader
 
+logger = logging.getLogger(__name__)
+
 
 class SolveAgent:
     def __init__(self, config: dict):
         self.config = config
         litellm.enable_json_schema_validation = True
-        self.prompt = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
+        self.prompt:dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         if self.config is None:
             raise ValueError("找不到配置文件")
 
@@ -55,11 +57,11 @@ class SolveAgent:
             choice = input("请输入选项编号: ").strip()
             if choice == "1":
                 self.auto_mode = True
-                print("已选择自动模式")
+                logger.info("已选择自动模式")
                 return
             elif choice == "2":
                 self.auto_mode = False
-                print("已选择手动模式")
+                logger.info("已选择手动模式")
                 return
             else:
                 print("无效选项，请重新选择")
@@ -104,9 +106,9 @@ class SolveAgent:
                             # 添加工具配置
                             self.function_configs.append(tool_instance.function_config)
 
-                            print(f"已加载工具: {tool_name}")
+                            logger.info(f"已加载工具: {tool_name}")
                 except Exception as e:
-                    print(f"加载工具{module_name}失败: {str(e)}")
+                    logger.warning(f"加载工具{module_name}失败: {str(e)}")
 
     def solve(self, problem_class: str, solution_plan: str) -> str:
         """
@@ -136,6 +138,9 @@ class SolveAgent:
             purpose = arguments.get("purpose", "未指定目的")
             content = arguments.get("content", "")
 
+            logger.info(f"使用工具: {tool_name}")
+            logger.info(f"命令目的: {purpose}")
+            logger.info(f"执行命令:\n{content}")
             # 手动模式：需要用户批准命令
             if not self.auto_mode:
                 approved, next_step = self.manual_approval_step(next_step)
@@ -147,10 +152,7 @@ class SolveAgent:
                 arguments = next_step.get("arguments", {})
                 purpose = arguments.get("purpose", "未指定目的")
                 content = arguments.get("content", "")
-            else:
-                print(f"使用工具: {tool_name}")
-                print(f"命令目的: {purpose}")
-                print(f"执行命令:\n{content}")
+
             # 执行命令
             output = ""
             if tool_name in self.tools:
@@ -164,7 +166,7 @@ class SolveAgent:
             else:
                 output = f"错误: 未找到工具 '{tool_name}'"
 
-            print(f"命令输出:\n{output}")
+            logger.info(f"命令输出:\n{output}")
 
             # 使用LLM分析输出
             analysis_result = self.analyze_step_output(
@@ -174,7 +176,7 @@ class SolveAgent:
             # 检查LLM是否在输出中发现了flag
             if analysis_result.get("flag_found", False):
                 flag_candidate = analysis_result.get("flag", "")
-                print(f"LLM报告发现flag: {flag_candidate}")
+                logger.info(f"LLM报告发现flag: {flag_candidate}")
 
                 # 使用回调函数确认flag
                 if self.confirm_flag_callback and self.confirm_flag_callback(
@@ -182,7 +184,7 @@ class SolveAgent:
                 ):
                     return flag_candidate
                 else:
-                    print("用户确认flag不正确，继续解题")
+                    logger.info("用户确认flag不正确，继续解题")
 
             # 添加执行历史到记忆系统
             self.memory.add_step(
@@ -202,14 +204,9 @@ class SolveAgent:
     def manual_approval_step(self, next_step: Dict) -> Tuple[bool, Optional[Dict]]:
         """手动模式：让用户无限次反馈/重思，直到 ta 主动选 1 或 3"""
         while True:
-            tool_name = next_step.get("tool_name")
             arguments: dict = next_step.get("arguments", {})
             purpose = arguments.get("purpose", "未指定目的")
-            content = arguments.get("content", "")
 
-            print(f"使用工具: {tool_name}")
-            print(f"目的: {purpose}")
-            print(f"命令/代码:\n {content}")
             print("1. 批准并执行")
             print("2. 提供反馈并重新思考")
             print("3. 终止解题")
@@ -220,7 +217,7 @@ class SolveAgent:
             elif choice == "2":
                 feedback = input("请提供改进建议: ").strip()
                 # 仅重思，不立即执行
-                next_step = self.regenerate_with_feedback(purpose, feedback)
+                next_step = self.reflection(purpose, feedback)
                 if not next_step:
                     print("（思考失败，可继续反馈或选 3 终止）")
             elif choice == "3":
@@ -228,15 +225,13 @@ class SolveAgent:
             else:
                 print("无效选项，请重新选择")
 
-    def regenerate_with_feedback(self, purpose: str, feedback: str) -> Dict:
+    def reflection(self, purpose: str, feedback: str) -> Dict:
         """
-        根据用户反馈重新生成命令
-        返回的是“LLM 重新思考后的 next_step”，
-        后续仍需回到 manual_approval_step 让用户再次确认。
+        根据用户反馈重新生成命令，返回的是“LLM 重新思考后的 next_step”，后续仍需让用户再次确认。
         """
         history_summary = self.memory.get_summary()
 
-        template = self.env.from_string(self.prompt.get("regenerate_with_feedback", ""))
+        template = self.env.from_string(self.prompt.get("reflection", ""))
         prompt = template.render(
             original_purpose=purpose,
             feedback=feedback,
@@ -376,11 +371,9 @@ class SolveAgent:
 
         # 解析分析结果
         try:
-            json_str = re.search(
-                r"\{.*\}", response.choices[0].message.content, re.DOTALL
-            )
-            if json_str:
-                return json.loads(json_str.group(0))
+            result = json.loads(response.choices[0].message.content)
+            if isinstance(result,dict):
+                return result
         except (json.JSONDecodeError, KeyError):
             pass
 

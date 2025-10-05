@@ -1,7 +1,7 @@
-import json
+import logging
 from .problem_analyzer import ProblemAnalyzer
 from .solve_agent import SolveAgent
-
+logger = logging.getLogger(__name__)
 
 class Workflow:
     def __init__(self, config: dict):
@@ -11,9 +11,8 @@ class Workflow:
 
     def solve(self, question: str) -> str:
         # 获取题目分析结果
-        analysis_res = ProblemAnalyzer(self.config).analyze(question)
-        # analysis_res = """{"category": "分类", "solution": "解决思路"}"""
-        analysis_result = json.loads(analysis_res)
+        analysis_result = ProblemAnalyzer(self.config).analyze(question)
+        logger.info(f"题目分类：{analysis_result["category"]}\n分析结果：{analysis_result["solution"]}")
 
         # 创建SolveAgent实例并设置flag确认回调
         agent = SolveAgent(self.config)
