@@ -10,17 +10,18 @@ from ctf_tool.base_tool import BaseTool
 from litellm import ModelResponse
 from typing import Dict, Tuple, Optional, List
 from .memory import Memory
+from .utils import optimize_text
 from . import utils
 from jinja2 import Environment, FileSystemLoader
 
 logger = logging.getLogger(__name__)
+litellm.enable_json_schema_validation = True
 
 
 class SolveAgent:
     def __init__(self, config: dict, problem: str):
         self.config = config
         self.problem = problem
-        litellm.enable_json_schema_validation = True
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         if self.config is None:
             raise ValueError("找不到配置文件")
@@ -186,6 +187,7 @@ class SolveAgent:
             self.memory.add_step(
                 {
                     "step": step_count,
+                    "purpose": arguments.get("purpose", "未指定目的"),
                     "content": content,
                     "output": output,
                     "analysis": analysis_result,
@@ -240,7 +242,7 @@ class SolveAgent:
             model=self.config["model"],
             api_key=self.config["api_key"],
             api_base=self.config["api_base"],
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": optimize_text(prompt)}],
             tools=self.function_configs,
             tool_choice="auto",
         )
@@ -277,7 +279,7 @@ class SolveAgent:
             model=self.config["model"],
             api_key=self.config["api_key"],
             api_base=self.config["api_base"],
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": optimize_text(prompt)}],
             tools=self.function_configs,
             tool_choice="auto",
         )
@@ -308,25 +310,21 @@ class SolveAgent:
         else:
             content = message.content.strip()
             # 尝试直接解析JSON
-            while True:
-                try:
-                    data = json.loads(content)
-                    if "tool_calls" in data and data["tool_calls"]:
-                        tool_call: dict = data["tool_calls"][0]
-                        func_name: dict = tool_call.get("name", "工具解析失败")
-                        args: dict = tool_call.get("arguments", {})
-                        args.setdefault("purpose", "执行操作")
-                        args.setdefault("content", "")
-                        break
-                except json.JSONDecodeError:
-                    print("无法解析工具调用响应，尝试修复")
-                    fixed_json = utils.fix_json_with_llm(content, None, self.config)
-                    if fixed_json:
-                        content = fixed_json
-                        continue
-                except Exception as e:
-                    print(f"无法解析工具调用响应：{e}")
-                    return {}
+            try:
+                data = json.loads(content)
+            except json.JSONDecodeError:
+                print("无法解析工具调用响应，尝试修复")
+                content = utils.fix_json_with_llm(content, None, self.config)
+                data = json.loads(content)
+            except Exception as e:
+                print(f"无法解析工具调用响应：{e}")
+                return {}
+            if "tool_calls" in data and data["tool_calls"]:
+                tool_call: dict = data["tool_calls"][0]
+                func_name: dict = tool_call.get("name", "工具解析失败")
+                args: dict = tool_call.get("arguments", {})
+                args.setdefault("purpose", "执行操作")
+                args.setdefault("content", "")
 
         logger.info(f"使用工具: {func_name}")
         logger.info(f"命令目的: {args['purpose']}")
@@ -341,7 +339,7 @@ class SolveAgent:
         :param step_num: 步骤编号
         :param content: 执行的内容
         :param output: 命令输出
-        :param solution_plan: 原始解题思路
+        :param solution_plan: 解题思路
         :return: 分析结果字典
         """
         # 获取记忆摘要
@@ -363,22 +361,16 @@ class SolveAgent:
             model=self.config["model"],
             api_key=self.config["api_key"],
             api_base=self.config["api_base"],
-            messages=[{"role": "user", "content": prompt}],
+            messages=[{"role": "user", "content": optimize_text(prompt)}],
         )
-
         # 解析分析结果
         try:
             result = json.loads(response.choices[0].message.content)
             if isinstance(result, dict):
                 return result
-        except (json.JSONDecodeError, KeyError):
-            pass
-
-        # 解析失败时返回默认结果
-        return {
-            "analysis": "分析失败",
-            "terminate": False,
-            "recommendations": "继续执行",
-            "flag_found": False,
-            "flag": "",
-        }
+        except (json.JSONDecodeError, KeyError) as e:
+            content = utils.fix_json_with_llm(
+                response.choices[0].message.content, e, self.config
+            )
+            result = json.loads(content)
+            return result

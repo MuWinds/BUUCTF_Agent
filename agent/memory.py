@@ -1,7 +1,11 @@
 import litellm
 from typing import List, Dict, Tuple
 import json
+from .utils import optimize_text
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Memory:
@@ -9,7 +13,7 @@ class Memory:
         self, config: dict, max_steps: int = 15, compression_threshold: int = 7
     ):
         """
-        增强型记忆管理类，优化了记忆压缩和检索机制
+        记忆管理类
         :param config: 配置字典
         :param max_steps: 最大保存步骤数
         :param compression_threshold: 触发压缩的步骤阈值
@@ -43,11 +47,16 @@ class Memory:
         """从步骤中提取关键事实并存储"""
         # 1. 提取重要路径/文件名
         if "output" in step:
-            paths = re.findall(r"/(?:[^/\s]+/)*[^/\s]+", step["output"])
+            # 正则表达式：要求路径包含有效的文件/目录命名字符
+            paths = re.findall(r"/[\w\-./]+(?:/[\w\-./]+)*", step["output"])
             for path in set(paths):
-                self.key_facts[f"path:{path}"] = (
-                    f"在步骤中发现路径: {step.get('purpose', '')}"
-                )
+                # 新增过滤条件：路径必须包含扩展名或目录结构
+                if ("." in path or "/" in path) and not re.search(r"[<>]", path):
+                    if path == "" or step.get("purpose", "") == "":
+                        continue
+                    self.key_facts[f"path:{path}"] = (
+                        f"在步骤{step.get('purpose', '')}中发现路径:{path}"
+                    )
 
         # 2. 提取关键命令和结果
         if "content" in step and "output" in step:
@@ -55,7 +64,7 @@ class Memory:
             output_summary = step["output"][:256] + (
                 "..." if len(step["output"]) > 256 else ""
             )
-            self.key_facts[f"command:{command}"] = f"结果: {output_summary}"
+            self.key_facts[f"command"] = f"命令：{command},结果: {output_summary}"
 
         # 3. 提取分析结论
         if "analysis" in step and "analysis" in step["analysis"]:
@@ -87,7 +96,7 @@ class Memory:
 
         # 添加关键事实作为上下文
         prompt += "关键事实摘要:\n"
-        for key, value in list(self.key_facts.items())[-5:]:  # 只取最近5个关键事实
+        for _, value in list(self.key_facts.items())[-5:]:  # 只取最近5个关键事实
             prompt += f"- {value}\n"
 
         # 添加历史步骤
@@ -108,13 +117,13 @@ class Memory:
 
         try:
             # 调用LLM生成结构化记忆
+            litellm.enable_json_schema_validation = True
             response = litellm.completion(
                 model=self.config["model"],
                 api_key=self.config["api_key"],
                 api_base=self.config["api_base"],
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=600,
-                response_format={"type": "json_object"},  # 要求JSON格式输出
+                messages=[{"role": "user", "content": optimize_text(prompt)}],
+                max_tokens=1024,
             )
 
             # 解析并存储压缩记忆
@@ -127,7 +136,6 @@ class Memory:
 
             # 添加时间戳和来源信息
             compressed_data["source_steps"] = len(self.history)
-            compressed_data["timestamp"] = "2023-10-27"  # 实际使用时替换为真实时间戳
 
             self.compressed_memory.append(compressed_data)
             print(
@@ -162,9 +170,7 @@ class Memory:
         # 1. 关键事实摘要
         if include_key_facts and self.key_facts:
             summary += "关键事实:\n"
-            for _, value in list(self.key_facts.items())[
-                -10:
-            ]:  # 显示最近10个关键事实
+            for _, value in list(self.key_facts.items())[-10:]:  # 显示最近10个关键事实
                 summary += f"- {value}\n"
             summary += "\n"
 

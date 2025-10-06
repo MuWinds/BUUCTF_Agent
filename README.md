@@ -114,6 +114,7 @@ def function_config(self) -> Dict:
                         "description": "要执行的shell命令"
                     },
                 "required": ["purpose", "content"]
+                }
             }
         }
     }

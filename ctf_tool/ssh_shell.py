@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 
 class SSHShell(BaseTool):
     def __init__(self):
-        tool_config:dict = Config.get_tool_config("ssh_shell")
-        ssh_config:dict = tool_config.get("ssh_shell", {})
+        tool_config: dict = Config.get_tool_config("ssh_shell")
+        ssh_config: dict = tool_config.get("ssh_shell", {})
         self.hostname = ssh_config.get("host")
         self.port = ssh_config.get("port", 22)
         self.username = ssh_config.get("username")
@@ -53,7 +53,7 @@ class SSHShell(BaseTool):
         if not self._is_connected():
             logger.warning("SSH会话断开，尝试重新连接...")
             self._connect()
-        
+
         # 从参数中提取命令内容
         command = arguments.get("content", "")
         if not command:
@@ -61,24 +61,23 @@ class SSHShell(BaseTool):
 
         try:
             _, stdout, stderr = self.ssh_client.exec_command(command)
-            
+
             # 读取输出
             stdout_bytes = stdout.read()
             stderr_bytes = stderr.read()
 
             # 安全解码
-            def safe_decode(data:bytes) -> str:
+            def safe_decode(data: bytes) -> str:
                 try:
                     return data.decode("utf-8")
                 except UnicodeDecodeError:
                     return data.decode("utf-8", errors="replace")
-            
+
             return safe_decode(stdout_bytes), safe_decode(stderr_bytes)
-        
+
         except Exception as e:
             logger.error(f"命令执行失败: {str(e)}")
             return "", f"命令执行错误: {str(e)}"
-
 
     @property
     def function_config(self) -> Dict:
