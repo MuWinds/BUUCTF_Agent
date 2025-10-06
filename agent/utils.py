@@ -37,8 +37,6 @@ def fix_json_with_llm(json_str: str, err_content: str, config: dict) -> dict:
 def optimize_text(text: str) -> str:
     # 把连续 2 个及以上空格 → 先统一替换成一个特殊标记
     text = re.sub(r" {2,}", "\x00", text)  # \x00 几乎不会出现在正文里
-    # 把剩下的单个空格全部删掉
-    text = text.replace(" ", "")
     # 把特殊标记还原成唯一一个空格
     text = text.replace("\x00", " ")
     text = re.sub(r"\n+", "\n", text)

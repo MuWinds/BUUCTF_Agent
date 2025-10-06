@@ -1,8 +1,7 @@
 import litellm
-from typing import List, Dict, Tuple
+from typing import List, Dict
 import json
 from .utils import optimize_text
-import re
 import logging
 
 logger = logging.getLogger(__name__)
@@ -45,20 +44,7 @@ class Memory:
 
     def _extract_key_facts(self, step: Dict) -> None:
         """从步骤中提取关键事实并存储"""
-        # 1. 提取重要路径/文件名
-        if "output" in step:
-            # 正则表达式：要求路径包含有效的文件/目录命名字符
-            paths = re.findall(r"/[\w\-./]+(?:/[\w\-./]+)*", step["output"])
-            for path in set(paths):
-                # 新增过滤条件：路径必须包含扩展名或目录结构
-                if ("." in path or "/" in path) and not re.search(r"[<>]", path):
-                    if path == "" or step.get("purpose", "") == "":
-                        continue
-                    self.key_facts[f"path:{path}"] = (
-                        f"在步骤{step.get('purpose', '')}中发现路径:{path}"
-                    )
-
-        # 2. 提取关键命令和结果
+        # 提取关键命令和结果
         if "content" in step and "output" in step:
             command = step["content"]
             output_summary = step["output"][:256] + (
@@ -66,7 +52,7 @@ class Memory:
             )
             self.key_facts[f"command"] = f"命令：{command},结果: {output_summary}"
 
-        # 3. 提取分析结论
+        # 提取分析结论
         if "analysis" in step and "analysis" in step["analysis"]:
             analysis = step["analysis"]["analysis"]
             if "关键发现" in analysis:
@@ -74,25 +60,25 @@ class Memory:
 
     def compress_memory(self) -> None:
         """压缩历史记录，生成结构化记忆块"""
-        print("优化记忆压缩中...")
+        logger.info("优化记忆压缩中...")
         if not self.history:
             return
 
         # 构建更精细的压缩提示
-        prompt = (
-            "你是一个专业的CTF解题助手，需要压缩解题历史记录。请执行以下任务：\n"
-            "1. 识别并提取关键的技术细节和发现\n"
-            "2. 标记已尝试但失败的解决方案\n"
-            "3. 总结当前解题状态和下一步建议\n"
-            "4. 以JSON格式返回以下结构的数据：\n"
-            "{\n"
-            '  "key_findings": ["发现1", "发现2"],\n'
-            '  "failed_attempts": ["命令1", "命令2"],\n'
-            '  "current_status": "当前状态描述",\n'
-            '  "next_steps": ["建议1", "建议2"]\n'
-            "}\n\n"
-            "历史记录:\n"
-        )
+        prompt = """
+                "你是一个专业的CTF解题助手，需要压缩解题历史记录。请执行以下任务：\n"
+                "1. 识别并提取关键的技术细节和发现\n"
+                "2. 标记已尝试但失败的解决方案\n"
+                "3. 总结当前解题状态和下一步建议\n"
+                "4. 以JSON格式返回以下结构的数据：\n"
+                "{\n"
+                '  "key_findings": ["发现1", "发现2"],\n'
+                '  "failed_attempts": ["命令1", "命令2"],\n'
+                '  "current_status": "当前状态描述",\n'
+                    '  "next_steps": ["建议1", "建议2"]\n'
+                    "}\n\n"
+                "历史记录:\n"
+                """
 
         # 添加关键事实作为上下文
         prompt += "关键事实摘要:\n"
@@ -109,11 +95,6 @@ class Memory:
             if "analysis" in step:
                 analysis = step["analysis"].get("analysis", "无分析")
                 prompt += f"- 分析: {analysis}\n"
-
-            # 添加失败标记（如果有）
-            if "analysis" in step and "success" in step["analysis"]:
-                if not step["analysis"]["success"]:
-                    prompt += f"- 结果: 失败 (尝试次数: {self.failed_attempts.get(step['content'], 1)})\n"
 
         try:
             # 调用LLM生成结构化记忆
@@ -226,30 +207,3 @@ class Memory:
 
                 summary += "\n"
         return summary if summary else "无历史记录"
-
-    def should_retry(self, command: str) -> Tuple[bool, str]:
-        """
-        检查是否应重试某个命令
-        返回是否应重试和原因
-        """
-        if command not in self.failed_attempts:
-            return True, "首次尝试"
-
-        attempt_count = self.failed_attempts[command]
-        if attempt_count == 1:
-            return True, "第二次尝试，可能有不同上下文"
-        elif attempt_count == 2:
-            return False, "已尝试两次，建议更换方法"
-        else:
-            return False, f"已尝试{attempt_count}次，强烈建议更换方法"
-
-    def get_key_facts(self, keyword: str = "") -> List[str]:
-        """根据关键词检索关键事实"""
-        if not keyword:
-            return list(self.key_facts.values())[-10:]
-
-        return [
-            fact
-            for key, fact in self.key_facts.items()
-            if keyword.lower() in key.lower() or keyword.lower() in fact.lower()
-        ]

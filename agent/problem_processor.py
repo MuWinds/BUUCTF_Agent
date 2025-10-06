@@ -31,7 +31,6 @@ class ProblemProcessor:
         """
         分析题目
         :param question: 题干
-        :param max_fix_round: 最多修复次数
         :return: 原始 LLM 返回字符串
         """
         prompt = self.prompt["problem_analyze"].replace("{question}", question)
