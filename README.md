@@ -39,24 +39,42 @@ pip install -r .\requirements.txt
 4. 修改配置文件：config.json，修改工具的配置文件
    下面是是硅基流动API（OpenAI兼容模式的配置示例：）
    ```json
-   {
-    "model": "openai/deepseek-ai/DeepSeek-V3.1-Terminus",
-    "api_key": "",
-    "api_base": "https://api.siliconflow.cn/v1",
-    "tool_config":{
-        "ssh_shell": 
-        {
-            "host": "127.0.0.1",
-            "port": 2201,
-            "username": "root",
-            "password": ""
+    {
+        "llm":{
+            "analyzer":{
+                "model": "openai/deepseek-ai/DeepSeek-R1",
+                "api_key": "",
+                "api_base": "https://api.siliconflow.cn/"
+            },
+            "problem_processor":{
+                "model": "openai/Qwen/Qwen3-30B-A3B-Instruct-2507",
+                "api_key": "",
+                "api_base": "https://api.siliconflow.cn/"
+            },
+            "solve_agent":{
+                "model": "openai/deepseek-ai/DeepSeek-V3",
+                "api_key": "",
+                "api_base": "https://api.siliconflow.cn/"
+            }
         },
-        "python":
-        {
+        "max_history_steps": 15,
+        "compression_threshold": 7,
+        "tool_config":{
+            "ssh_shell": 
+            {
+                "host": "127.0.0.1",
+                "port": 22,
+                "username": "",
+                "password": ""
+            },
+            "python":
+            {
+            }
         }
     }
-   }
    ```
+   在llm部分中，analyzer负责的是分析部分，problem_processor负责的是问题的处理部分，solve_agent则负责步骤执行的部分，这里推荐analyzer采用思维链的推理模型以提升对问题的思考能力，problem_processor采用参数量相对不大的小模型以节省费用。
+   
    本项目采用litellm与大模型进行对接，因此，如果要使用openai兼容的api模型，需要在model值前加openai/，即原来是`deepseek-ai/DeepSeek-V3.1-Terminus`，需要改成`openai/deepseek-ai/DeepSeek-V3.1-Terminus`
 5. 运行：
 ```
@@ -65,11 +83,12 @@ python .\main.py
 
 
 ## 目前计划
-- 允许用户本地环境运行Python代码
+- ~~允许用户本地环境运行Python代码~~（已完成）
 - 支持更多工具，比如二进制分析等，不局限于Web题和Web相关的密码学之类的
 - 提供更美观的界面，比如Web前端或者Qt界面
 - RAG知识库
-- 将不同工具的LLM进行区分，或者按照思考推理与代码指令编写两种任务分派到不同的LLM
+- ~~将不同工具的LLM进行区分，或者按照思考推理与代码指令编写两种任务分派到不同的LLM~~（已完成）
+- 更好的RAG机制
 - 实现不同OJ平台的自动化，提供手动输入题面之外更便捷的选择
 
 ## 工具开发

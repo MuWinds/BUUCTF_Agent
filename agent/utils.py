@@ -1,15 +1,17 @@
 import litellm
 import re
 import json
+from config import Config
 
 
-def fix_json_with_llm(json_str: str, err_content: str, config: dict) -> dict:
+def fix_json_with_llm(json_str: str, err_content: str) -> dict:
     """
     使用LLM修复格式错误的JSON
     :param json_str: 格式错误的JSON字符串
     :param config: LLM配置
     :return: 修复后的字典
     """
+    config: dict = Config.load_config()
     litellm.enable_json_schema_validation = True
     prompt = (
         "以下是一个格式错误的JSON字符串，请修复它使其成为有效的JSON。"
@@ -18,12 +20,13 @@ def fix_json_with_llm(json_str: str, err_content: str, config: dict) -> dict:
         f"错误JSON: {json_str}"
         f"错误信息: {err_content}"
     )
+    llm_config = config["llm"]["problem_processor"]
 
     while True:
         response = litellm.completion(
-            model=config["model"],
-            api_key=config["api_key"],
-            api_base=config["api_base"],
+            model=llm_config["model"],
+            api_key=llm_config["api_key"],
+            api_base=llm_config["api_base"],
             messages=[{"role": "user", "content": prompt}],
         )
         fixed_json = response.choices[0].message.content

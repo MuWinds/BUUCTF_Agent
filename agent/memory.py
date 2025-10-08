@@ -1,8 +1,8 @@
 import litellm
-from typing import List, Dict
 import json
-from .utils import optimize_text
 import logging
+from typing import List, Dict
+from .utils import optimize_text
 
 logger = logging.getLogger(__name__)
 

@@ -1,7 +1,21 @@
 {
-    "model": "",
-    "api_key": "",
-    "api_base": "",
+    "llm":{
+        "analyzer":{
+            "model": "openai/deepseek-ai/DeepSeek-R1",
+            "api_key": "",
+            "api_base": "https://api.siliconflow.cn/"
+        },
+        "problem_processor":{
+            "model": "openai/Qwen/Qwen3-30B-A3B-Instruct-2507",
+            "api_key": "",
+            "api_base": "https://api.siliconflow.cn/"
+        },
+        "solve_agent":{
+            "model": "openai/deepseek-ai/DeepSeek-V3",
+            "api_key": "",
+            "api_base": "https://api.siliconflow.cn/"
+        }
+    },
     "max_history_steps": 15,
     "compression_threshold": 7,
     "tool_config":{

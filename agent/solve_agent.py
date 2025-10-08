@@ -8,6 +8,7 @@ import inspect
 import importlib
 from ctf_tool.base_tool import BaseTool
 from litellm import ModelResponse
+from .analyzer import Analyzer
 from typing import Dict, Tuple, Optional, List
 from .memory import Memory
 from .utils import optimize_text
@@ -21,6 +22,7 @@ litellm.enable_json_schema_validation = True
 class SolveAgent:
     def __init__(self, config: dict, problem: str):
         self.config = config
+        self.llm_config = self.config["llm"]["solve_agent"]
         self.problem = problem
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         if self.config is None:
@@ -39,6 +41,7 @@ class SolveAgent:
         # 动态加载工具
         self.tools: Dict[str, BaseTool] = {}  # 工具名称 -> 工具实例
         self.function_configs: List[Dict] = []  # 函数调用配置列表
+        self.analyzer = Analyzer(config=self.config, problem=self.problem)
 
         # 加载ctf_tools文件夹中的所有工具
         self._load_tools()
@@ -166,8 +169,8 @@ class SolveAgent:
             logger.info(f"命令输出:\n{output}")
 
             # 使用LLM分析输出
-            analysis_result = self.analyze_step_output(
-                step_count, content, output, solution_plan
+            analysis_result = self.analyzer.analyze_step_output(
+                self.memory, step_count, content, output, solution_plan
             )
 
             # 检查LLM是否在输出中发现了flag
@@ -214,7 +217,6 @@ class SolveAgent:
                 return True, next_step
             elif choice == "2":
                 feedback = input("请提供改进建议: ").strip()
-                # 仅重思，不立即执行
                 next_step = self.reflection(purpose, feedback)
                 if not next_step:
                     print("（思考失败，可继续反馈或选 3 终止）")
@@ -239,9 +241,9 @@ class SolveAgent:
         )
 
         response = litellm.completion(
-            model=self.config["model"],
-            api_key=self.config["api_key"],
-            api_base=self.config["api_base"],
+            model=self.llm_config["model"],
+            api_key=self.llm_config["api_key"],
+            api_base=self.llm_config["api_base"],
             messages=[{"role": "user", "content": optimize_text(prompt)}],
             tools=self.function_configs,
             tool_choice="auto",
@@ -276,9 +278,9 @@ class SolveAgent:
 
         # 调用LLM生成下一步动作
         response = litellm.completion(
-            model=self.config["model"],
-            api_key=self.config["api_key"],
-            api_base=self.config["api_base"],
+            model=self.llm_config["model"],
+            api_key=self.llm_config["api_key"],
+            api_base=self.llm_config["api_base"],
             messages=[{"role": "user", "content": optimize_text(prompt)}],
             tools=self.function_configs,
             tool_choice="auto",
@@ -298,9 +300,7 @@ class SolveAgent:
             try:
                 args = json.loads(tool_call.function.arguments)
             except json.JSONDecodeError as e:
-                args = utils.fix_json_with_llm(
-                    tool_call.function.arguments, e, self.config
-                )
+                args = utils.fix_json_with_llm(tool_call.function.arguments, e)
 
             # 确保参数中包含purpose和content
             args.setdefault("purpose", "执行操作")
@@ -312,9 +312,9 @@ class SolveAgent:
             # 尝试直接解析JSON
             try:
                 data = json.loads(content)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
                 print("无法解析工具调用响应，尝试修复")
-                content = utils.fix_json_with_llm(content, None, self.config)
+                content = utils.fix_json_with_llm(content, e)
                 data = json.loads(content)
             except Exception as e:
                 print(f"无法解析工具调用响应：{e}")
@@ -330,47 +330,3 @@ class SolveAgent:
         logger.info(f"命令目的: {args['purpose']}")
         logger.info(f"执行命令:\n{args['content']}")
         return {"tool_name": func_name, "arguments": args}
-
-    def analyze_step_output(
-        self, step_num: int, content: str, output: str, solution_plan: str
-    ) -> Dict:
-        """
-        使用LLM分析步骤输出
-        :param step_num: 步骤编号
-        :param content: 执行的内容
-        :param output: 命令输出
-        :param solution_plan: 解题思路
-        :return: 分析结果字典
-        """
-        # 获取记忆摘要
-        history_summary = self.memory.get_summary()
-
-        # 使用Jinja2渲染提示
-        template = self.env.from_string(self.prompt.get("step_analysis", ""))
-        prompt = template.render(
-            question=self.problem,
-            step_num=step_num,
-            content=content,
-            output=output[:4096],
-            solution_plan=solution_plan,
-            history_summary=history_summary,
-        )
-
-        # 调用LLM进行分析
-        response = litellm.completion(
-            model=self.config["model"],
-            api_key=self.config["api_key"],
-            api_base=self.config["api_base"],
-            messages=[{"role": "user", "content": optimize_text(prompt)}],
-        )
-        # 解析分析结果
-        try:
-            result = json.loads(response.choices[0].message.content)
-            if isinstance(result, dict):
-                return result
-        except (json.JSONDecodeError, KeyError) as e:
-            content = utils.fix_json_with_llm(
-                response.choices[0].message.content, e, self.config
-            )
-            result = json.loads(content)
-            return result
