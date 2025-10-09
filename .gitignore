@@ -3,6 +3,7 @@ __pycache__/
 *.py[codz]
 *$py.class
 .vscode/
+.attachments/
 logs/
 
 # C extensions

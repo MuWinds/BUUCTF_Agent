@@ -1,7 +1,9 @@
 import logging
+import litellm
+import yaml
 from .analyzer import Analyzer
-from .problem_processor import ProblemProcessor
 from .solve_agent import SolveAgent
+from .utils import optimize_text
 
 logger = logging.getLogger(__name__)
 
@@ -9,13 +11,13 @@ logger = logging.getLogger(__name__)
 class Workflow:
     def __init__(self, config: dict):
         self.config = config
+        self.processor_llm: dict = self.config["llm"]["pre_processor"]
+        self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         if self.config is None:
             raise ValueError("配置文件不存在")
 
     def solve(self, problem: str) -> str:
-        # 题目预处理
-        problem_processor = ProblemProcessor(self.config)
-        problem = problem_processor.summary(problem)
+        problem = self.summary_problem(problem)
         #  分析题目
         analyzer = Analyzer(self.config, problem)
         analysis_result = analyzer.problem_analyze()
@@ -47,3 +49,19 @@ class Workflow:
                 return False
             else:
                 print("无效输入，请输入 'y' 或 'n'")
+
+    def summary_problem(self, problem: str) -> str:
+        """
+        总结题目
+        """
+        if len(problem) < 128:
+            return problem
+        prompt = str(self.prompt["problem_summary"]).replace("{question}", problem)
+        message = litellm.Message(role="user", content=optimize_text(prompt))
+        response = litellm.completion(
+            model=self.processor_llm["model"],
+            api_key=self.processor_llm["api_key"],
+            api_base=self.processor_llm["api_base"],
+            messages=[message],
+        )
+        return response.choices[0].message.content

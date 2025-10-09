@@ -1,12 +1,15 @@
-# ctf_tools/python.py
-from ctf_tool.base_tool import BaseTool
-from ctf_tool.ssh_shell import SSHShell
-from typing import Tuple, Dict
+import paramiko
 import subprocess
 import sys
 import tempfile
 import os
 import time
+import logging
+from ctf_tool.base_tool import BaseTool
+from config import Config
+from typing import Tuple, Dict
+
+logger = logging.getLogger(__name__)
 
 
 class PythonTool(BaseTool):
@@ -14,7 +17,13 @@ class PythonTool(BaseTool):
         # 在初始化时询问是否要远程执行
         self.remote = self.ask_remote_execution()
         if self.remote:
-            self.ssh_shell = SSHShell()
+            ssh_config: dict = Config.get_tool_config("ssh_shell")
+            self.hostname = ssh_config.get("host")
+            self.port = ssh_config.get("port", 22)
+            self.username = ssh_config.get("username")
+            self.password = ssh_config.get("password")
+            self.ssh_client = None
+            self._connect()
 
     def ask_remote_execution(self) -> bool:
         """询问用户是否要远程执行"""
@@ -48,26 +57,76 @@ class PythonTool(BaseTool):
             return "", str(e)
 
     def _execute_remotely(self, content: str) -> Tuple[str, str]:
-        if self.ssh_shell is None:
-            return "", "错误：未配置SSH，无法远程执行"
-
-        temp_name = f"/tmp/py_script_{int(time.time())}.py"
+        temp_name = f"py_script_{int(time.time())}.py"
 
         # 修复：使用字典参数调用execute方法
         upload_cmd = f"cat > {temp_name} << 'EOF'\n{content}\nEOF"
-        self.ssh_shell.execute({"content": upload_cmd, "purpose": "上传Python脚本"})
-
-        # 修复：使用字典参数调用execute方法
-        stdout, stderr = self.ssh_shell.execute(
-            {"content": f"python3 {temp_name}", "purpose": "执行Python脚本"}
-        )
-
-        # 修复：使用字典参数调用execute方法
-        self.ssh_shell.execute(
-            {"content": f"rm -f {temp_name}", "purpose": "清理临时文件"}
-        )
+        self._shell_execute({"content": upload_cmd})
+        stdout, stderr = self._shell_execute({"content": f"python3 {temp_name}"})
+        self._shell_execute({"content": f"rm -f {temp_name}"})
 
         return stdout, stderr
+
+    def _is_connected(self):
+        """检查连接是否有效"""
+        if not self.ssh_client:
+            return False
+        try:
+            transport = self.ssh_client.get_transport()
+            return transport and transport.is_active()
+        except Exception:
+            return False
+
+    def _connect(self):
+        """建立SSH连接或重连"""
+        try:
+            if self.ssh_client:
+                self.ssh_client.close()
+            client = paramiko.SSHClient()
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            client.connect(
+                hostname=self.hostname,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                timeout=10,
+            )
+            self.ssh_client = client
+            logger.info(f"SSH连接成功: {self.username}@{self.hostname}:{self.port}")
+        except Exception as e:
+            logger.error(f"SSH连接失败: {str(e)}")
+            raise ConnectionError(f"SSH连接失败: {str(e)}")
+
+    def _shell_execute(self, arguments: dict):
+        # 检查连接状态，自动重连
+        if not self._is_connected():
+            logger.warning("SSH会话断开，尝试重新连接...")
+            self._connect()
+
+        # 从参数中提取命令内容
+        command = arguments.get("content", "")
+        if not command:
+            return "", "错误：未提供命令内容"
+
+        try:
+            _, stdout, stderr = self.ssh_client.exec_command(command)
+
+            # 读取输出
+            stdout_bytes = stdout.read()
+            stderr_bytes = stderr.read()
+
+            # 安全解码
+            def safe_decode(data: bytes) -> str:
+                try:
+                    return data.decode("utf-8")
+                except UnicodeDecodeError:
+                    return data.decode("utf-8", errors="replace")
+
+            return safe_decode(stdout_bytes), safe_decode(stderr_bytes)
+
+        except Exception as e:
+            logger.error(f"命令执行失败: {str(e)}")
+            return "", f"命令执行错误: {str(e)}"
 
     @property
     def function_config(self) -> Dict:

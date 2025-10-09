@@ -20,7 +20,7 @@ def fix_json_with_llm(json_str: str, err_content: str) -> dict:
         f"错误JSON: {json_str}"
         f"错误信息: {err_content}"
     )
-    llm_config = config["llm"]["problem_processor"]
+    llm_config = config["llm"]["pre_processor"]
 
     while True:
         response = litellm.completion(

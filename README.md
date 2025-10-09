@@ -42,17 +42,17 @@ pip install -r .\requirements.txt
     {
         "llm":{
             "analyzer":{
-                "model": "openai/deepseek-ai/DeepSeek-R1",
-                "api_key": "",
-                "api_base": "https://api.siliconflow.cn/"
-            },
-            "problem_processor":{
-                "model": "openai/Qwen/Qwen3-30B-A3B-Instruct-2507",
+                "model": "deepseek-ai/DeepSeek-R1",
                 "api_key": "",
                 "api_base": "https://api.siliconflow.cn/"
             },
             "solve_agent":{
-                "model": "openai/deepseek-ai/DeepSeek-V3",
+                "model": "deepseek-ai/DeepSeek-V3",
+                "api_key": "",
+                "api_base": "https://api.siliconflow.cn/"
+            },
+            "pre_processor":{
+                "model": "Qwen/Qwen3-8B",
                 "api_key": "",
                 "api_base": "https://api.siliconflow.cn/"
             }
@@ -73,7 +73,7 @@ pip install -r .\requirements.txt
         }
     }
    ```
-   在llm部分中，analyzer负责的是分析部分，problem_processor负责的是问题的处理部分，solve_agent则负责步骤执行的部分，这里推荐analyzer采用思维链的推理模型以提升对问题的思考能力，problem_processor采用参数量相对不大的小模型以节省费用。
+   在llm部分中，analyzer负责的是分析部分，problem_processor负责的是问题的处理部分，solve_agent则负责步骤执行的部分，这里推荐analyzer采用思维链的推理模型以提升对问题的思考能力，而pre_processor是对文字做预处理，采用参数量相对不大的小模型以节省费用。
    
    本项目采用litellm与大模型进行对接，因此，如果要使用openai兼容的api模型，需要在model值前加openai/，即原来是`deepseek-ai/DeepSeek-V3.1-Terminus`，需要改成`openai/deepseek-ai/DeepSeek-V3.1-Terminus`
 5. 运行：
@@ -90,6 +90,7 @@ python .\main.py
 - ~~将不同工具的LLM进行区分，或者按照思考推理与代码指令编写两种任务分派到不同的LLM~~（已完成）
 - 更好的MCP支持
 - 实现不同OJ平台的自动化，提供手动输入题面之外更便捷的选择
+- ~~支持附件输入~~已实现，需要在项目根目录的attachments目录下放入附件
 
 ## 工具开发
 **目前项目已经内置支持Python工具和SSH到装好环境的Linux机器进行解题**，如果还需要开发自己顺手的工具可以看这里

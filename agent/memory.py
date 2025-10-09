@@ -18,6 +18,7 @@ class Memory:
         :param compression_threshold: 触发压缩的步骤阈值
         """
         self.config = config
+        self.llm_config = self.config["llm"]["solve_agent"]
         self.max_steps = max_steps
         self.compression_threshold = compression_threshold
         self.history: List[Dict] = []  # 详细历史记录
@@ -100,9 +101,9 @@ class Memory:
             # 调用LLM生成结构化记忆
             litellm.enable_json_schema_validation = True
             response = litellm.completion(
-                model=self.config["model"],
-                api_key=self.config["api_key"],
-                api_base=self.config["api_base"],
+                model=self.llm_config["model"],
+                api_key=self.llm_config["api_key"],
+                api_base=self.llm_config["api_base"],
                 messages=[{"role": "user", "content": optimize_text(prompt)}],
                 max_tokens=1024,
             )

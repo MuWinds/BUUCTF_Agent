@@ -320,11 +320,11 @@ class SolveAgent:
                 print(f"无法解析工具调用响应：{e}")
                 return {}
             if "tool_calls" in data and data["tool_calls"]:
-                tool_call: dict = data["tool_calls"][0]
-                func_name: dict = tool_call.get("name", "工具解析失败")
-                args: dict = tool_call.get("arguments", {})
-                args.setdefault("purpose", "执行操作")
-                args.setdefault("content", "")
+                    tool_call: dict = data["tool_calls"][0]
+                    func_name: dict = tool_call.get("name", "工具解析失败")
+                    args: dict = tool_call.get("arguments", {})
+                    args.setdefault("purpose", "执行操作")
+                    args.setdefault("content", "")
 
         logger.info(f"使用工具: {func_name}")
         logger.info(f"命令目的: {args['purpose']}")
