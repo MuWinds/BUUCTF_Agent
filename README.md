@@ -75,7 +75,7 @@ pip install -r .\requirements.txt
    ```
    在llm部分中，analyzer负责的是分析部分，problem_processor负责的是问题的处理部分，solve_agent则负责步骤执行的部分，这里推荐analyzer采用思维链的推理模型以提升对问题的思考能力，而pre_processor是对文字做预处理，采用参数量相对不大的小模型以节省费用。
    
-   本项目采用litellm与大模型进行对接，因此，如果要使用openai兼容的api模型，需要在model值前加openai/，即原来是`deepseek-ai/DeepSeek-V3.1-Terminus`，需要改成`openai/deepseek-ai/DeepSeek-V3.1-Terminus`
+   本项目目前**仅兼容OpenAI API类型的大模型**
 5. 运行：
 ```
 python .\main.py
