@@ -122,7 +122,7 @@ step_analysis: |
   6. 如果发现flag，请提供flag值
   7. 如果发现错误，请给出修改建议
   输出格式:
-  请严格按照以下JSON格式输出，必须输出纯JSON对象，不要包含任何额外文本（如```json标记）：
+  请严格按照工具调用的JSON格式输出：
   {
       "analysis": "详细分析内容",
       "terminate": true/false,    // 是否需要提前终止解题

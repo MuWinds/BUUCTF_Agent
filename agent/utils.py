@@ -1,6 +1,7 @@
 import litellm
 import re
 import json
+from json_repair import repair_json
 from config import Config
 
 
@@ -23,6 +24,8 @@ def fix_json_with_llm(json_str: str, err_content: str) -> dict:
     llm_config = config["llm"]["pre_processor"]
 
     while True:
+        if json.loads(repair_json(json_str)):
+            return repair_json(json_str)
         response = litellm.completion(
             model=llm_config["model"],
             api_key=llm_config["api_key"],
@@ -31,8 +34,8 @@ def fix_json_with_llm(json_str: str, err_content: str) -> dict:
         )
         fixed_json = response.choices[0].message.content
         try:
-            json.loads(fixed_json)
-            return fixed_json
+            json.loads(repair_json(fixed_json))
+            return repair_json(fixed_json)
         except:
             continue
 
