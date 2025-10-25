@@ -29,5 +29,7 @@
         "python":
         {
         }
+    },
+    "mcp_server": {
     }
 }

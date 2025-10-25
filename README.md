@@ -70,10 +70,23 @@ pip install -r .\requirements.txt
             "python":
             {
             }
+        },
+        "mcp_server": {
+            "hexstrike": {
+                "type": "stdio",
+                "command": "python3",
+                "args": [
+                    "/root/hexstrike-ai/hexstrike_mcp.py",
+                    "--server",
+                    "http://localhost:8888"
+                ]
+            },
+            "inputs": []
         }
     }
    ```
    在llm部分中，analyzer负责的是分析部分，problem_processor负责的是问题的处理部分，solve_agent则负责步骤执行的部分，这里推荐analyzer采用思维链的推理模型以提升对问题的思考能力，而pre_processor是对文字做预处理，采用参数量相对不大的小模型以节省费用。
+   mcp_server则是配置自己的mcp服务器，如果没有可配的直接不填也行，这里放入了hexstrike作为示例
    
    本项目目前**仅兼容OpenAI API类型的大模型**
 5. 运行：

@@ -2,16 +2,13 @@ import litellm
 import json
 import time
 import yaml
-import os
 import logging
-import inspect
-import importlib
 from ctf_tool.base_tool import BaseTool
 from litellm import ModelResponse
 from .analyzer import Analyzer
 from typing import Dict, Tuple, Optional, List
 from .memory import Memory
-from .utils import optimize_text
+from .utils import optimize_text, load_tools
 from . import utils
 from jinja2 import Environment, FileSystemLoader
 
@@ -44,7 +41,7 @@ class SolveAgent:
         self.analyzer = Analyzer(config=self.config, problem=self.problem)
 
         # 加载ctf_tools文件夹中的所有工具
-        self._load_tools()
+        self.tools, self.function_configs = load_tools()
 
         # 添加模式设置
         self._select_mode()
@@ -70,50 +67,6 @@ class SolveAgent:
                 return
             else:
                 print("无效选项，请重新选择")
-
-    def _load_tools(self):
-        """动态加载tool文件夹中的所有工具"""
-        tools_dir = os.path.join(os.path.dirname(__file__), "..", "ctf_tool")
-
-        for file_name in os.listdir(tools_dir):
-            if (
-                file_name.endswith(".py")
-                and file_name != "__init__.py"
-                and file_name != "base_tool.py"
-            ):
-                module_name = file_name[:-3]  # 移除.py
-                try:
-                    # 导入模块
-                    module = importlib.import_module(f"ctf_tool.{module_name}")
-
-                    # 查找所有继承自BaseTool的类
-                    for name, obj in inspect.getmembers(module):
-                        if (
-                            inspect.isclass(obj)
-                            and issubclass(obj, BaseTool)
-                            and obj != BaseTool
-                        ):
-                            # 检查是否需要特殊配置
-                            if name in self.config.get("tool_config", {}):
-                                # 使用配置创建实例
-                                tool_config = self.config["tool_config"][name]
-                                tool_instance = obj(tool_config)
-                            else:
-                                # 创建默认实例
-                                tool_instance = obj()
-
-                            # 添加到工具字典
-                            tool_name = tool_instance.function_config["function"][
-                                "name"
-                            ]
-                            self.tools[tool_name] = tool_instance
-
-                            # 添加工具配置
-                            self.function_configs.append(tool_instance.function_config)
-
-                            logger.info(f"已加载工具: {tool_name}")
-                except Exception as e:
-                    logger.warning(f"加载工具{module_name}失败: {str(e)}")
 
     def solve(self, problem_class: str, solution_plan: str) -> str:
         """
@@ -153,18 +106,23 @@ class SolveAgent:
                 arguments = next_step.get("arguments", {})
                 content = arguments.get("content", "")
 
-            # 执行命令
-            output = ""
-            if tool_name in self.tools:
-                try:
-                    tool = self.tools[tool_name]
-                    result = tool.execute(arguments)
-                    stdout, stderr = result
-                    output = stdout + stderr
-                except Exception as e:
-                    output = f"工具执行出错: {str(e)}"
-            else:
-                output = f"错误: 未找到工具 '{tool_name}'"
+                # 执行命令
+                output = ""
+                if tool_name in self.tools:
+                    try:
+                        tool = self.tools[tool_name]
+                        # 统一调用方式
+                        result = tool.execute(tool_name, arguments)
+                        # 处理返回结果
+                        if isinstance(result, tuple) and len(result) == 2:
+                            stdout, stderr = result
+                            output = str(stdout) + str(stderr)
+                        else:
+                            output = str(result)
+                    except Exception as e:
+                        output = f"工具执行出错: {str(e)}"
+                else:
+                    output = f"错误: 未找到工具 '{tool_name}'"
 
             logger.info(f"命令输出:\n{output}")
 
@@ -299,6 +257,7 @@ class SolveAgent:
             func_name = tool_call.function.name
             try:
                 args = json.loads(tool_call.function.arguments)
+                print(args)
             except json.JSONDecodeError as e:
                 args = utils.fix_json_with_llm(tool_call.function.arguments, e)
 
@@ -312,6 +271,7 @@ class SolveAgent:
             # 尝试直接解析JSON
             try:
                 data = json.loads(content)
+                print(data)
             except json.JSONDecodeError as e:
                 print("无法解析工具调用响应，尝试修复")
                 content = utils.fix_json_with_llm(content, e)
@@ -320,13 +280,13 @@ class SolveAgent:
                 print(f"无法解析工具调用响应：{e}")
                 return {}
             if "tool_calls" in data and data["tool_calls"]:
-                    tool_call: dict = data["tool_calls"][0]
-                    func_name: dict = tool_call.get("name", "工具解析失败")
-                    args: dict = tool_call.get("arguments", {})
-                    args.setdefault("purpose", "执行操作")
-                    args.setdefault("content", "")
+                tool_call: dict = data["tool_calls"][0]
+                func_name: dict = tool_call.get("name", "工具解析失败")
+                args: dict = tool_call.get("arguments", {})
+                args.setdefault("purpose", "执行操作")
+                args.setdefault("content", "")
 
         logger.info(f"使用工具: {func_name}")
         logger.info(f"命令目的: {args['purpose']}")
-        logger.info(f"执行命令:\n{args['content']}")
+        logger.info(f"执行命令:\n{args}")
         return {"tool_name": func_name, "arguments": args}

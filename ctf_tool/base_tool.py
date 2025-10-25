@@ -2,6 +2,9 @@
 # 工具基类
 from abc import ABC, abstractmethod
 from typing import Dict, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BaseTool(ABC):

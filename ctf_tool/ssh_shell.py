@@ -53,7 +53,7 @@ class SSHShell(BaseTool):
         except Exception:
             return False
 
-    def execute(self, arguments: dict):
+    def execute(self, tool_name: str, arguments: dict):
         # 检查连接状态，自动重连
         if not self._is_connected():
             logger.warning("SSH会话断开，尝试重新连接...")

@@ -34,7 +34,7 @@ class PythonTool(BaseTool):
 
         return choice == "2"
 
-    def execute(self, arguments: dict) -> Tuple[str, str]:
+    def execute(self, tool_name: str, arguments: dict) -> Tuple[str, str]:
         """执行Python代码"""
         content = arguments.get("content", "")
 
