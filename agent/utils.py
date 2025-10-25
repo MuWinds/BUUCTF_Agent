@@ -109,24 +109,38 @@ def load_tools() -> Tuple[Dict, list]:
                 logger.warning(f"加载工具{module_name}失败: {str(e)}")
 
     # 加载MCP服务器工具
-    mcp_servers: dict = config.get("mcp_server", {})  # 注意键名大小写
+    mcp_servers:dict = config.get("mcp_server", {})  # 注意键名大小写
 
     # 遍历MCP服务器配置
-    for server_name, server_config in mcp_servers.items():
+    for server_name, server_config in mcp_servers.items():            
         try:
             from ctf_tool.mcp_adapter import MCPServerAdapter
-
             # 添加服务器名称到配置
             server_config["name"] = server_name
             adapter = MCPServerAdapter(server_config)
-
+            
             # 添加MCP工具的函数配置
             for mcp_tool_config in adapter.get_tool_configs():
                 tool_name = mcp_tool_config["function"]["name"]
-                tools[tool_name] = adapter
+                tool_description = mcp_tool_config["function"]["description"]
+                
+                # 创建工具表示对象
+                class MCPToolRepresentation:
+                    def __init__(self, name, description):
+                        self.function_config = {
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "description": description
+                            }
+                        }
+                
+                # 添加到工具字典
+                tool_rep = MCPToolRepresentation(tool_name, tool_description)
+                tools[tool_name] = tool_rep
                 function_configs.append(mcp_tool_config)
-                logger.info(f"已加载MCP工具: {tool_name}")
+                logger.info(f"已加载MCP工具: {tool_name} - {tool_description}")
         except Exception as e:
             logger.error(f"加载MCP服务器失败: {str(e)}")
-
+    
     return tools, function_configs

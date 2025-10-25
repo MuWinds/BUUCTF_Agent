@@ -18,8 +18,11 @@ web_next: |
   执行历史:
   {{ history_summary }}
   可用工具:
-  {% for tool in tools %}
-  - {{ tool.function_config['function']['name'] }}: {{ tool.function_config['function']['description'] }}
+  {% for tool in tool_configs %}
+  - {{ tool['function']['name'] }}: {{ tool['function']['description'] }}
+    {% if 'parameters' in tool['function'] and 'required' in tool['function']['parameters'] %}
+      必填参数: {{ tool['function']['parameters']['required']|join(', ') }}
+    {% endif %}
   {% endfor %}
   任务要求:
   1. 只生成一个操作（仅一个工具调用）
@@ -50,8 +53,11 @@ crypto_next: |
   执行历史:
   {{ history_summary }}
   可用工具:
-  {% for tool in tools %}
-  - {{ tool.function_config['function']['name'] }}: {{ tool.function_config['function']['description'] }}
+  {% for tool in tool_configs %}
+  - {{ tool['function']['name'] }}: {{ tool['function']['description'] }}
+    {% if 'parameters' in tool['function'] and 'required' in tool['function']['parameters'] %}
+      必填参数: {{ tool['function']['parameters']['required']|join(', ') }}
+    {% endif %}
   {% endfor %}
   任务要求:
   1. 只生成一个操作（仅一个工具调用）
@@ -80,8 +86,11 @@ general_next: |
   执行历史:
   {{ history_summary }}
   可用工具:
-  {% for tool in tools %}
-  - {{ tool.function_config['function']['name'] }}: {{ tool.function_config['function']['description'] }}
+  {% for tool in tool_configs %}
+  - {{ tool['function']['name'] }}: {{ tool['function']['description'] }}
+    {% if 'parameters' in tool['function'] and 'required' in tool['function']['parameters'] %}
+      必填参数: {{ tool['function']['parameters']['required']|join(', ') }}
+    {% endif %}
   {% endfor %}
   任务要求:
   1. 只生成一个操作（仅一个工具调用）

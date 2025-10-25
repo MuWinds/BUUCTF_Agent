@@ -239,9 +239,4 @@ class MCPServerAdapter(BaseTool):
 
     def _cleanup(self):
         """清理资源，关闭连接"""
-
-        async def async_cleanup():
-            await self.exit_stack.aclose()
-
-        self.loop.run_until_complete(async_cleanup())
         self.loop.close()
