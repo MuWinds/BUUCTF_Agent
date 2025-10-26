@@ -220,16 +220,12 @@ class SolveAgent:
         # 获取记忆摘要
         history_summary = self.memory.get_summary()
 
-        # 根据题目类别选择不同的prompt模板
-        prompt_key = problem_class.lower() + "_next"
-        if prompt_key not in self.prompt:
-            prompt_key = "general_next"
-
         # 使用Jinja2渲染提示
-        template = self.env.from_string(self.prompt.get(prompt_key, ""))
+        template = self.env.from_string("general_next")
         prompt = template.render(
             question=self.problem,
             solution_plan=solution_plan,
+            category=problem_class,
             history_summary=history_summary,
             tools=self.tools.values(),
         )
