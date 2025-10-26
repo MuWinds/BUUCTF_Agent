@@ -80,8 +80,7 @@ pip install -r .\requirements.txt
                     "--server",
                     "http://localhost:8888"
                 ]
-            },
-            "inputs": []
+            }
         }
     }
    ```
