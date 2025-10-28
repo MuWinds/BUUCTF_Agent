@@ -4,7 +4,7 @@ import time
 import yaml
 import logging
 from ctf_tool.base_tool import BaseTool
-from litellm import ModelResponse
+from litellm import ModelResponse, ChatCompletionMessageToolCall
 from .analyzer import Analyzer
 from typing import Dict, Tuple, Optional, List
 from .memory import Memory
@@ -221,7 +221,7 @@ class SolveAgent:
         history_summary = self.memory.get_summary()
 
         # 使用Jinja2渲染提示
-        template = self.env.from_string("general_next")
+        template = self.env.from_string(self.prompt.get("general_next", ""))
         prompt = template.render(
             question=self.problem,
             solution_plan=solution_plan,
@@ -249,7 +249,7 @@ class SolveAgent:
 
         # 情况1：直接工具调用格式（tool_calls）
         if hasattr(message, "tool_calls") and message.tool_calls:
-            tool_call = message.tool_calls[0]
+            tool_call: ChatCompletionMessageToolCall = message.tool_calls[0]
             func_name = tool_call.function.name
             try:
                 args = json.loads(tool_call.function.arguments)
@@ -267,7 +267,6 @@ class SolveAgent:
             # 尝试直接解析JSON
             try:
                 data = json.loads(content)
-                print(data)
             except json.JSONDecodeError as e:
                 print("无法解析工具调用响应，尝试修复")
                 content = utils.fix_json_with_llm(content, e)
@@ -283,6 +282,6 @@ class SolveAgent:
                 args.setdefault("content", "")
 
         logger.info(f"使用工具: {func_name}")
-        logger.info(f"命令目的: {args['purpose']}")
-        logger.info(f"执行命令:\n{args}")
+        logger.info(f"执行目的: {args['purpose']}")
+        logger.info(f"执行内容:\n{args}")
         return {"tool_name": func_name, "arguments": args}

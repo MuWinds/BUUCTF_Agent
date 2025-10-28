@@ -1,6 +1,7 @@
 import logging
 import litellm
 import yaml
+import os
 from .analyzer import Analyzer
 from .solve_agent import SolveAgent
 from .utils import optimize_text
@@ -54,6 +55,10 @@ class Workflow:
         """
         总结题目
         """
+        if len(os.listdir("./attachments")) > 0:
+            problem += "\n题目包含附件如下："
+            for filename in os.listdir("./attachments"):
+                problem += f"\n- {filename}"
         if len(problem) < 128:
             return problem
         prompt = str(self.prompt["problem_summary"]).replace("{question}", problem)

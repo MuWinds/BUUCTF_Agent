@@ -19,7 +19,7 @@ def setup_logging():
     # 配置日志
     logging.basicConfig(
         level=logging.DEBUG,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_file),
             logging.StreamHandler(sys.stdout)
@@ -54,9 +54,8 @@ if __name__ == "__main__":
     logger = logging.getLogger(__name__)
     config: dict = Config.load_config()
     print("如题目中含有附件，请放附件文件到项目根目录的attachments文件夹下")
-    print("请在此输入题目标题和内容，支持多行输入")
-    print("输入完成后回车按 Ctrl+D 或 Ctrl+Z 再回车以结束：")
-    question = sys.stdin.read().strip()
+    input("将题目文本放在Agent根目录下的question.txt回车以结束")
+    question = open("question.txt", "r", encoding="utf-8").read()
     logger.debug(f"题目内容：{question}")
     result = Workflow(config=config).solve(question)
     logger.info(f"最终结果:{result}")

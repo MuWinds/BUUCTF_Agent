@@ -1,7 +1,6 @@
 import asyncio
 from contextlib import AsyncExitStack
 from typing import Dict, List, Optional
-
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from ctf_tool.base_tool import BaseTool
@@ -35,6 +34,7 @@ class MCPServerAdapter(BaseTool):
             await self._connect_stdio_server()
         elif self.communication_mode == "http" and "url" in self.server_config:
             self.base_url = self.server_config["url"]
+            self.auth_token = self.server_config.get("auth_token", None)
             await self._load_http_tools()
         else:
             logger.error(f"不支持的通信模式或缺少必要配置: {self.communication_mode}")
@@ -191,31 +191,7 @@ class MCPServerAdapter(BaseTool):
     @property
     def function_config(self) -> Dict:
         """实现BaseTool要求的属性 - 返回适配器本身的配置"""
-        return {
-            "type": "function",
-            "function": {
-                "name": f"mcp_adapter_{self.server_name}",
-                "description": f"MCP服务器适配器: {self.server_name}",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "purpose": {
-                            "type": "string",
-                            "description": "执行此步骤的目的",
-                        },
-                        "tool_name": {
-                            "type": "string",
-                            "description": "要执行的工具名称",
-                        },
-                        "arguments": {
-                            "type": "object",
-                            "description": "工具参数",
-                        },
-                    },
-                    "required": ["purpose", "tool_name", "arguments"],
-                },
-            },
-        }
+        return {}
 
     def get_tool_configs(self) -> List[Dict]:
         """为每个MCP工具生成函数配置"""
@@ -229,8 +205,7 @@ class MCPServerAdapter(BaseTool):
                     "parameters": {
                         "type": "object",
                         "properties": {**tool_info["parameters"]["properties"]},
-                        "required": ["purpose", "tool_name"]
-                        + tool_info["parameters"].get("required", []),
+                        "required": tool_info["parameters"].get("required", []),
                     },
                 },
             }

@@ -13,7 +13,7 @@ from config import Config
 logger = logging.getLogger(__name__)
 
 
-def fix_json_with_llm(json_str: str, err_content: str) -> dict:
+def fix_json_with_llm(json_str: str, err_content: str) -> str:
     """
     使用LLM修复格式错误的JSON
     :param json_str: 格式错误的JSON字符串
@@ -32,19 +32,17 @@ def fix_json_with_llm(json_str: str, err_content: str) -> dict:
     llm_config = config["llm"]["pre_processor"]
 
     while True:
-        if json.loads(repair_json(json_str)):
-            return repair_json(json_str)
-        response = litellm.completion(
-            model=llm_config["model"],
-            api_key=llm_config["api_key"],
-            api_base=llm_config["api_base"],
-            messages=[{"role": "user", "content": prompt}],
-        )
-        fixed_json = response.choices[0].message.content
         try:
-            json.loads(repair_json(fixed_json))
-            return repair_json(fixed_json)
+            if json.loads(repair_json(json_str)):
+                return repair_json(json_str)
         except:
+            response = litellm.completion(
+                model=llm_config["model"],
+                api_key=llm_config["api_key"],
+                api_base=llm_config["api_base"],
+                messages=[{"role": "user", "content": prompt}],
+            )
+            json_str = response.choices[0].message.content
             continue
 
 
@@ -74,7 +72,7 @@ def load_tools() -> Tuple[Dict, list]:
             file_name.endswith(".py")
             and file_name != "__init__.py"
             and file_name != "base_tool.py"
-            and file_name != "mcp_adapter.py"  # 排除适配器文件
+            and file_name != "mcp_adapter.py"  # 排除适MCP文件
         ):
             module_name = file_name[:-3]  # 移除.py
             try:
@@ -109,38 +107,27 @@ def load_tools() -> Tuple[Dict, list]:
                 logger.warning(f"加载工具{module_name}失败: {str(e)}")
 
     # 加载MCP服务器工具
-    mcp_servers:dict = config.get("mcp_server", {})  # 注意键名大小写
+    mcp_servers: dict = config.get("mcp_server", {})  # 注意键名大小写
 
     # 遍历MCP服务器配置
-    for server_name, server_config in mcp_servers.items():            
+    for server_name, server_config in mcp_servers.items():
         try:
             from ctf_tool.mcp_adapter import MCPServerAdapter
+
             # 添加服务器名称到配置
             server_config["name"] = server_name
             adapter = MCPServerAdapter(server_config)
-            
+
             # 添加MCP工具的函数配置
             for mcp_tool_config in adapter.get_tool_configs():
                 tool_name = mcp_tool_config["function"]["name"]
-                tool_description = mcp_tool_config["function"]["description"]
-                
-                # 创建工具表示对象
-                class MCPToolRepresentation:
-                    def __init__(self, name, description):
-                        self.function_config = {
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "description": description
-                            }
-                        }
-                
-                # 添加到工具字典
-                tool_rep = MCPToolRepresentation(tool_name, tool_description)
-                tools[tool_name] = tool_rep
+                tool_description = mcp_tool_config["function"].get("description", "")
+
+                # 适配器实例负责执行此工具
+                tools[tool_name] = adapter
                 function_configs.append(mcp_tool_config)
-                logger.info(f"已加载MCP工具: {tool_name} - {tool_description}")
+                logger.info(f"已加载MCP工具: {tool_name}")
         except Exception as e:
             logger.error(f"加载MCP服务器失败: {str(e)}")
-    
+
     return tools, function_configs
