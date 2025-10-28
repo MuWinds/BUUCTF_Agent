@@ -195,7 +195,7 @@ class SolveAgent:
             original_purpose=purpose,
             feedback=feedback,
             history_summary=history_summary,
-            tools=self.tools.values(),
+            tool_configs=self.function_configs,
         )
 
         response = litellm.completion(
@@ -227,7 +227,7 @@ class SolveAgent:
             solution_plan=solution_plan,
             category=problem_class,
             history_summary=history_summary,
-            tools=self.tools.values(),
+            tool_configs=self.function_configs,
         )
 
         # 调用LLM生成下一步动作
