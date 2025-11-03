@@ -94,7 +94,7 @@ class SolveAgent:
             tool_name = next_step.get("tool_name")
             arguments: dict = next_step.get("arguments", {})
             content = arguments.get("content", "")
-
+            output = ""
             # 手动模式：需要用户批准命令
             if not self.auto_mode:
                 approved, next_step = self.manual_approval_step(next_step)
@@ -107,7 +107,6 @@ class SolveAgent:
                 content = arguments.get("content", "")
 
                 # 执行命令
-                output = ""
                 if tool_name in self.tools:
                     try:
                         tool = self.tools[tool_name]
