@@ -106,22 +106,22 @@ class SolveAgent:
                 arguments = next_step.get("arguments", {})
                 content = arguments.get("content", "")
 
-                # 执行命令
-                if tool_name in self.tools:
-                    try:
-                        tool = self.tools[tool_name]
-                        # 统一调用方式
-                        result = tool.execute(tool_name, arguments)
-                        # 处理返回结果
-                        if isinstance(result, tuple) and len(result) == 2:
-                            stdout, stderr = result
-                            output = str(stdout) + str(stderr)
-                        else:
-                            output = str(result)
-                    except Exception as e:
-                        output = f"工具执行出错: {str(e)}"
-                else:
-                    output = f"错误: 未找到工具 '{tool_name}'"
+            # 执行命令
+            if tool_name in self.tools:
+                try:
+                    tool = self.tools[tool_name]
+                    # 统一调用方式
+                    result = tool.execute(tool_name, arguments)
+                    # 处理返回结果
+                    if isinstance(result, tuple) and len(result) == 2:
+                        stdout, stderr = result
+                        output = str(stdout) + str(stderr)
+                    else:
+                        output = str(result)
+                except Exception as e:
+                    output = f"工具执行出错: {str(e)}"
+            else:
+                output = f"错误: 未找到工具 '{tool_name}'"
 
             logger.info(f"命令输出:\n{output}")
 
