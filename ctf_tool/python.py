@@ -5,17 +5,18 @@ import tempfile
 import os
 import time
 import logging
+from typing import Tuple, Dict, Optional
 from ctf_tool.base_tool import BaseTool
 from config import Config
-from typing import Tuple, Dict
 
 logger = logging.getLogger(__name__)
 
 
 class PythonTool(BaseTool):
-    def __init__(self):
+    def __init__(self, tool_config: Optional[Dict] = None):
+        tool_config = tool_config or {}
         # 在初始化时询问是否要远程执行
-        self.remote = self.ask_remote_execution()
+        self.remote = self.ask_remote_execution(tool_config.get("default_mode"))
         if self.remote:
             ssh_config: dict = Config.get_tool_config("ssh_shell")
             self.hostname = ssh_config.get("host")
@@ -25,8 +26,18 @@ class PythonTool(BaseTool):
             self.ssh_client = None
             self._connect()
 
-    def ask_remote_execution(self) -> bool:
-        """询问用户是否要远程执行"""
+    def ask_remote_execution(self, default_mode: Optional[str] = None) -> bool:
+        """询问用户是否要远程执行，在非交互环境下遵循预设。"""
+        env_mode = os.getenv("AGENT_PYTHON_MODE")
+        if env_mode in {"local", "remote"}:
+            return env_mode == "remote"
+
+        if default_mode in {"local", "remote"}:
+            return default_mode == "remote"
+
+        if os.getenv("AGENT_NON_INTERACTIVE") == "1":
+            return False
+
         print("\n--- Python 执行选项 ---")
         print("1. 本地执行")
         print("2. 远程执行")
