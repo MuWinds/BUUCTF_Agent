@@ -3,10 +3,11 @@ import json
 import time
 import yaml
 import logging
+from threading import Event
+from typing import Dict, Tuple, Optional, List, Callable
 from ctf_tool.base_tool import BaseTool
 from litellm import ModelResponse, ChatCompletionMessageToolCall
 from .analyzer import Analyzer
-from typing import Dict, Tuple, Optional, List
 from .memory import Memory
 from .utils import optimize_text, load_tools
 from . import utils
@@ -17,13 +18,24 @@ litellm.enable_json_schema_validation = True
 
 
 class SolveAgent:
-    def __init__(self, config: dict, problem: str):
+    def __init__(
+        self,
+        config: dict,
+        problem: str,
+        auto_mode: Optional[bool] = None,
+        event_callback: Optional[Callable[[Dict], None]] = None,
+        stop_event: Optional[Event] = None,
+    ):
         self.config = config
         self.llm_config = self.config["llm"]["solve_agent"]
         self.problem = problem
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         if self.config is None:
             raise ValueError("找不到配置文件")
+
+        self.event_callback = event_callback
+        self.stop_event = stop_event
+        self._auto_mode_override = auto_mode
 
         # 初始化Jinja2模板环境
         self.env = Environment(loader=FileSystemLoader("."))
@@ -49,8 +61,24 @@ class SolveAgent:
         # 添加flag确认回调函数
         self.confirm_flag_callback = None  # 将由Workflow设置
 
+    def emit_event(self, payload: Dict) -> None:
+        """向订阅者广播内部事件，忽略回调中的异常。"""
+        if self.event_callback is None:
+            return
+        try:
+            self.event_callback(payload)
+        except Exception as exc:  # pragma: no cover - 防止回调异常影响主流程
+            logger.warning(f"事件回调执行失败: {exc}")
+
     def _select_mode(self):
         """让用户选择运行模式"""
+        if self._auto_mode_override is not None:
+            self.auto_mode = self._auto_mode_override
+            mode_text = "自动模式" if self.auto_mode else "手动模式"
+            logger.info(f"已设定运行模式: {mode_text}")
+            self.emit_event({"type": "mode_selected", "auto_mode": self.auto_mode})
+            return
+
         print("\n请选择运行模式:")
         print("1. 自动模式（Agent自动生成和执行所有命令）")
         print("2. 手动模式（每一步需要用户批准）")
@@ -60,10 +88,12 @@ class SolveAgent:
             if choice == "1":
                 self.auto_mode = True
                 logger.info("已选择自动模式")
+                self.emit_event({"type": "mode_selected", "auto_mode": True})
                 return
             elif choice == "2":
                 self.auto_mode = False
                 logger.info("已选择手动模式")
+                self.emit_event({"type": "mode_selected", "auto_mode": False})
                 return
             else:
                 print("无效选项，请重新选择")
@@ -77,16 +107,35 @@ class SolveAgent:
         """
         step_count = 0
 
+        self.emit_event(
+            {
+                "type": "solve_started",
+                "category": problem_class,
+                "solution_plan": solution_plan,
+            }
+        )
+
         while True:
+            if self.stop_event and self.stop_event.is_set():
+                self.emit_event({"type": "terminated", "reason": "user_stop"})
+                return "解题终止"
+
             step_count += 1
             print(f"\n正在思考第 {step_count} 步...")
+            self.emit_event({"type": "step_begin", "step": step_count})
 
             # 生成下一步执行命令
             next_step = None
             while next_step is None:
+                if self.stop_event and self.stop_event.is_set():
+                    self.emit_event({"type": "terminated", "reason": "user_stop"})
+                    return "解题终止"
+
                 next_step = self.generate_next_step(problem_class, solution_plan)
                 if next_step:
                     break
+
+                self.emit_event({"type": "step_retry", "step": step_count})
                 print("生成执行内容失败，10秒后重试...")
                 time.sleep(10)
 
@@ -95,27 +144,52 @@ class SolveAgent:
             arguments: dict = next_step.get("arguments", {})
             content = arguments.get("content", "")
             output = ""
+            self.emit_event(
+                {
+                    "type": "step_plan",
+                    "step": step_count,
+                    "tool": tool_name,
+                    "arguments": arguments,
+                }
+            )
+
             # 手动模式：需要用户批准命令
             if not self.auto_mode:
                 approved, next_step = self.manual_approval_step(next_step)
                 if not approved:
+                    self.emit_event({"type": "terminated", "reason": "user_stop"})
                     print("用户终止解题")
                     return "解题终止"
+
                 # 更新参数
                 tool_name = next_step.get("tool_name")
                 arguments = next_step.get("arguments", {})
                 content = arguments.get("content", "")
+                self.emit_event(
+                    {
+                        "type": "step_plan",
+                        "step": step_count,
+                        "tool": tool_name,
+                        "arguments": arguments,
+                        "via_feedback": True,
+                    }
+                )
+
+            if self.stop_event and self.stop_event.is_set():
+                self.emit_event({"type": "terminated", "reason": "user_stop"})
+                return "解题终止"
 
             # 执行命令
             if tool_name in self.tools:
                 try:
                     tool = self.tools[tool_name]
-                    # 统一调用方式
                     result = tool.execute(tool_name, arguments)
-                    # 处理返回结果
+
                     if isinstance(result, tuple) and len(result) == 2:
                         stdout, stderr = result
-                        output = str(stdout) + str(stderr)
+                        stdout_text = "" if stdout is None else str(stdout)
+                        stderr_text = "" if stderr is None else str(stderr)
+                        output = stdout_text + stderr_text
                     else:
                         output = str(result)
                 except Exception as e:
@@ -124,24 +198,58 @@ class SolveAgent:
                 output = f"错误: 未找到工具 '{tool_name}'"
 
             logger.info(f"命令输出:\n{output}")
+            self.emit_event(
+                {
+                    "type": "tool_output",
+                    "step": step_count,
+                    "tool": tool_name,
+                    "arguments": arguments,
+                    "output": output,
+                }
+            )
 
             # 使用LLM分析输出
             analysis_result = self.analyzer.analyze_step_output(
                 self.memory, step_count, content, output, solution_plan
+            )
+            self.emit_event(
+                {
+                    "type": "step_analysis",
+                    "step": step_count,
+                    "analysis": analysis_result,
+                }
             )
 
             # 检查LLM是否在输出中发现了flag
             if analysis_result.get("flag_found", False):
                 flag_candidate = analysis_result.get("flag", "")
                 logger.info(f"LLM报告发现flag: {flag_candidate}")
+                self.emit_event(
+                    {
+                        "type": "flag_candidate",
+                        "step": step_count,
+                        "flag": flag_candidate,
+                    }
+                )
 
-                # 使用回调函数确认flag
-                if self.confirm_flag_callback and self.confirm_flag_callback(
-                    flag_candidate
-                ):
+                confirmed = False
+                if self.confirm_flag_callback:
+                    confirmed = self.confirm_flag_callback(flag_candidate)
+
+                if confirmed:
+                    self.emit_event(
+                        {"type": "completed", "result": flag_candidate}
+                    )
                     return flag_candidate
-                else:
-                    logger.info("用户确认flag不正确，继续解题")
+
+                logger.info("用户确认flag不正确，继续解题")
+                self.emit_event(
+                    {
+                        "type": "flag_rejected",
+                        "step": step_count,
+                        "flag": flag_candidate,
+                    }
+                )
 
             # 添加执行历史到记忆系统
             self.memory.add_step(
@@ -153,10 +261,22 @@ class SolveAgent:
                     "analysis": analysis_result,
                 }
             )
+            self.emit_event({"type": "memory_updated", "step": step_count})
+
+            if self.stop_event and self.stop_event.is_set():
+                self.emit_event({"type": "terminated", "reason": "user_stop"})
+                return "解题终止"
 
             # 检查是否应该提前终止
             if analysis_result.get("terminate", False):
                 print("LLM建议提前终止解题")
+                self.emit_event(
+                    {
+                        "type": "terminated",
+                        "reason": "llm_terminate",
+                        "analysis": analysis_result,
+                    }
+                )
                 return "未找到flag：提前终止"
 
     def manual_approval_step(self, next_step: Dict) -> Tuple[bool, Optional[Dict]]:

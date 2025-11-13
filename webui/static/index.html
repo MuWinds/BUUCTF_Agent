@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BUUCTF Agent WebUI</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="page">
+        <header class="hero">
+            <div>
+                <h1>BUUCTF Agent 控制台</h1>
+                <p>实时查看解题流程，调整配置，随时终止任务。</p>
+            </div>
+            <div class="status-chip" id="statusIndicator">空闲</div>
+        </header>
+        <main class="layout">
+            <section class="panel" id="questionPanel">
+                <div class="panel-header">
+                    <h2>题面输入</h2>
+                </div>
+                <textarea id="questionInput" placeholder="请粘贴或输入题面描述"></textarea>
+                <div class="attachments-block">
+                    <div class="panel-subheader">
+                        <h3>附件管理</h3>
+                        <span id="attachmentsCount">0 个附件</span>
+                    </div>
+                    <div class="attachments-controls">
+                        <input type="file" id="attachmentInput" multiple>
+                        <button id="uploadAttachments">上传附件</button>
+                        <button id="clearAttachments" class="secondary">清空附件</button>
+                    </div>
+                    <ul id="attachmentList" class="attachment-list"></ul>
+                </div>
+                <div class="button-row">
+                    <button id="startButton">开始解题</button>
+                    <button id="stopButton" class="secondary">终止解题</button>
+                </div>
+                <div class="info-line">
+                    <span>配置来源：<span id="configSource">未知</span></span>
+                </div>
+            </section>
+
+            <section class="panel" id="logPanel">
+                <div class="panel-header">
+                    <h2>实时日志</h2>
+                    <button id="clearLog" class="text-button">清空</button>
+                </div>
+                <div id="logStream"></div>
+            </section>
+
+            <section class="panel" id="configPanel">
+                <div class="panel-header">
+                    <h2>配置管理</h2>
+                </div>
+                <div id="configForm" class="config-form"></div>
+                <div class="button-row">
+                    <button id="reloadConfig" class="secondary">重新加载</button>
+                    <button id="saveConfig">保存配置</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <div id="flagDialog" class="dialog hidden">
+        <div class="dialog-content">
+            <h3>发现 Flag 候选</h3>
+            <pre id="flagValue"></pre>
+            <div class="button-row">
+                <button id="confirmFlag">确认正确</button>
+                <button id="rejectFlag" class="secondary">继续探索</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js" defer></script>
+</body>
+</html>
