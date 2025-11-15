@@ -201,7 +201,8 @@ class MCPServerAdapter(BaseTool):
                 "type": "function",
                 "function": {
                     "name": tool_name,
-                    "description": tool_info["description"],
+                    #"description": tool_info["description"],
+                    "description": tool_info["description"][],
                     "parameters": {
                         "type": "object",
                         "properties": {**tool_info["parameters"]["properties"]},
