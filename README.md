@@ -19,86 +19,178 @@
 
 ## 部署与运行
 
-1. 克隆仓库
-```
+本节提供在类 Unix（Linux / WSL / 容器）环境下的推荐部署方式，并补充 WebUI 的启动方式说明。该项目在原生 Windows 环境下运行会遇到不便，强烈建议使用 Linux/WSL 或 Docker。
+
+先决条件
+- Python 3.8+（推荐 3.10+）
+- 建议使用虚拟环境（venv）或容器
+- 若使用 Docker，请预先安装 Docker
+
+### 1) 克隆仓库
+
+```bash
 git clone https://github.com/MuWinds/BUUCTF_Agent.git
-```
-2. 安装依赖
-```
-pip install -r .\requirements.txt
-```
-3. Docker容器配置（可选）：这一步是配置Agent的执行环境，可以自己配虚拟机也可以用仓库里现成的Dockerfile，如果用docker的方式配置请提前安装好Docker   
-   (1)先制作镜像:
-   ```bash
-   docker build -t ctf_agent .
-   ```
-   (2)再运行镜像，将镜像内ssh所用的22端口映射到宿主机的2201端口：
-   ```bash
-   docker run -itd -p 2201:22 ctf_agent
-   ```
-   如果用仓库里Dockerfile去创建Docker容器，SSH用户为root，密码为ctfagent。
-4. 修改配置文件：config.json，修改工具的配置文件
-   下面是是硅基流动API（OpenAI兼容模式的配置示例：）
-   ```json
-    {
-        "llm":{
-            "analyzer":{
-                "model": "deepseek-ai/DeepSeek-R1",
-                "api_key": "",
-                "api_base": "https://api.siliconflow.cn/"
-            },
-            "solve_agent":{
-                "model": "deepseek-ai/DeepSeek-V3",
-                "api_key": "",
-                "api_base": "https://api.siliconflow.cn/"
-            },
-            "pre_processor":{
-                "model": "Qwen/Qwen3-8B",
-                "api_key": "",
-                "api_base": "https://api.siliconflow.cn/"
-            }
-        },
-        "max_history_steps": 15,
-        "compression_threshold": 7,
-        "tool_config":{
-            "ssh_shell": 
-            {
-                "host": "127.0.0.1",
-                "port": 22,
-                "username": "",
-                "password": ""
-            },
-            "python":
-            {
-            }
-        },
-        "mcp_server": {
-            "hexstrike": {
-                "type": "stdio",
-                "command": "python3",
-                "args": [
-                    "/root/hexstrike-ai/hexstrike_mcp.py",
-                    "--server",
-                    "http://localhost:8888"
-                ]
-            }
-        }
-    }
-   ```
-   在llm部分中，analyzer负责的是分析部分，problem_processor负责的是问题的处理部分，solve_agent则负责步骤执行的部分，这里推荐analyzer采用思维链的推理模型以提升对问题的思考能力，而pre_processor是对文字做预处理，采用参数量相对不大的小模型以节省费用。
-   mcp_server则是配置自己的mcp服务器，如果没有可配的直接不填也行，这里放入了hexstrike作为示例
-   
-   本项目目前**仅兼容OpenAI API类型的大模型**
-5. 运行脚本模式：
-```
-python .\main.py
+cd BUUCTF_Agent
 ```
 
-6. 运行WebUI模式（可选）：
+### 2) 在 Linux / WSL 下本地运行（用于开发与调试）
+
+#### 2.1 创建并激活虚拟环境，安装依赖
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
-uvicorn webui.server:app --reload --port 8000
+
+#### 2.2 初始化并编辑配置文件 `config.json`
+
+```bash
+cp config_template.json config.json
+# 编辑 config.json，填写 llm、tool_config（例如 ssh_shell 的 host/port/username/password）
 ```
-访问 `http://127.0.0.1:8000` 打开控制台，可直接粘贴题面、实时查看执行输出、修改配置文件并随时终止解题流程。
+
+> 注意：程序运行时会通过 `config.Config.load_config("./config.json")` 读取配置，并自动在 `llm` 下的所有 `model` 字段前加上 `openai/` 前缀（如果你未手动带前缀），因此 `model` 值可以直接写成 `deepseek-ai/DeepSeek-R1` 等兼容 OpenAI 接口的模型名。
+
+#### 2.3 命令行模式运行（手动输入题面）
+
+命令行入口为 `main.py`，逻辑为：
+- 从项目根目录的 `config.json` 读取配置；
+- 提示你将题面写入 `question.txt`；
+- 读取 `question.txt` 的内容并调用 Agent 进行全流程解题；
+- 如题目有附件，请提前放入项目根目录下的 `attachments/` 目录。
+
+在项目根目录执行：
+
+```bash
+python3 main.py
+```
+
+#### 2.4 启动 Web UI
+
+项目提供了 FastAPI + 前端静态页面的 Web 控制台，入口在 `webui/server.py` 中的 `app` 变量：
+
+```bash
+uvicorn webui.server:app --reload --host 0.0.0.0 --port 8000
+```
+
+- 访问路径：`http://<服务器IP>:8000/`
+- 静态资源路径：`/static`（由 `webui/static` 目录提供）
+- WebUI 中可以：
+    - 在线查看与编辑当前生效的 `config.json`（通过 WebUI 内的配置管理接口）；
+    - 上传/删除附件（保存到项目根目录的 `attachments/` 目录，与命令行模式复用）；
+    - 启动/终止 Agent 会话，并实时查看日志事件流；
+    - 对模型推理出的 flag 进行人工确认后再提交。
+
+> 如果在 WSL 中运行，请使用 `--host 0.0.0.0`，以便宿主 Windows 访问 Web UI。
+
+### 3) 使用 Docker（推荐用于隔离运行）
+
+#### 3.1 构建镜像
+
+```bash
+docker build -t ctf_agent .
+```
+
+#### 3.2 运行容器并映射 Web UI 与 SSH（根据需要调整端口）
+
+```bash
+docker run -itd -p 8000:8000 -p 2201:22 --name ctf_agent ctf_agent
+```
+
+- Web UI 将暴露在宿主机 `http://localhost:8000/`
+- 若镜像中启用 SSH 服务，则示例中 SSH 端口映射到宿主机的 `2201`；
+- 若使用仓库内的 Dockerfile，默认 SSH 用户可能为 `root`，密码 `ctfagent`（以实际镜像配置为准）。
+
+#### 3.3 挂载配置与附件（可选但推荐）
+
+实际使用中通常希望持久化 `config.json` 与 `attachments/`，可以通过挂载宿主目录实现，例如：
+
+```bash
+docker run -itd \
+    -p 8000:8000 -p 2201:22 \
+    -v $(pwd)/config.json:/app/config.json \
+    -v $(pwd)/attachments:/app/attachments \
+    --name ctf_agent ctf_agent
+```
+
+> 挂载路径请根据 Dockerfile 中的工作目录调整（如果你更改了默认工作目录 `/app`）。
+
+### 4) 核心配置说明
+
+- `config.json` 的关键字段：
+    - `llm`：为不同任务（`analyzer` / `solve_agent` / `pre_processor`）配置模型与 API
+    - `tool_config`：各工具的运行参数（例如 `ssh_shell` 的 `host` / `port` / `username` / `password`）
+    - `mcp_server`：可选的 MCP 服务配置
+
+- 示例（请替换为你自己的 API 与凭证）：
+
+```json
+ {
+     "llm":{
+         "analyzer":{
+             "model": "deepseek-ai/DeepSeek-R1",
+             "api_key": "",
+             "api_base": "https://api.siliconflow.cn/"
+         },
+         "solve_agent":{
+             "model": "deepseek-ai/DeepSeek-V3",
+             "api_key": "",
+             "api_base": "https://api.siliconflow.cn/"
+         },
+         "pre_processor":{
+             "model": "Qwen/Qwen3-8B",
+             "api_key": "",
+             "api_base": "https://api.siliconflow.cn/"
+         }
+     },
+     "max_history_steps": 15,
+     "compression_threshold": 7,
+     "tool_config":{
+         "ssh_shell": 
+         {
+             "host": "127.0.0.1",
+             "port": 22,
+             "username": "",
+             "password": ""
+         },
+         "python":
+         {
+         }
+     },
+     "mcp_server": {
+         "hexstrike": {
+             "type": "stdio",
+             "command": "python3",
+             "args": [
+                 "/root/hexstrike-ai/hexstrike_mcp.py",
+                 "--server",
+                 "http://localhost:8888"
+             ]
+         }
+     }
+ }
+```
+
+注意：本项目目前仅兼容 OpenAI API 类型（或与 OpenAI 兼容的 API）的大模型接口。
+
+5) 运行与故障排查要点
+
+- 若模块缺失或安装失败，确认虚拟环境已激活并重新运行 `pip install -r requirements.txt`。
+- 若 Web UI 无法访问，检查防火墙与端口映射（容器运行时用 `docker ps` 和 `docker logs <name>` 查看）。
+- 容器日志查看：
+
+```bash
+docker logs ctf_agent
+```
+
+- 当使用远程 SSH 工具时，确保 `tool_config.ssh_shell` 中的 host/port/credential 正确且目标允许连接。
+
+6) 安全提示
+
+- 该项目能在被配置的工具上执行任意 Shell/代码，请勿在含有重要数据或生产环境的机器上无充分隔离地运行 Agent。
+- 对外提供 Web UI 或开放端口时请做好访问控制与凭证管理。
+
 
 
 ## 目前计划
