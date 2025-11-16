@@ -195,7 +195,8 @@ class MCPServerAdapter(BaseTool):
 
     def get_tool_configs(self) -> List[Dict]:
         """为每个MCP工具生成函数配置"""
-        configs = []
+        # configs = []
+        configs: List[Dict[str, Any]] = []
         for tool_name, tool_info in self.tools.items():
             config = {
                 "type": "function",
