@@ -198,17 +198,46 @@ class MCPServerAdapter(BaseTool):
         # configs = []
         configs: List[Dict[str, Any]] = []
         for tool_name, tool_info in self.tools.items():
+            # 1. 安全提取核心字段（避免 KeyError，提升健壮性）
+            tool_desc = tool_info.get("description", f"执行{tool_name}工具")
+            tool_params = tool_info.get("parameters", {})
+            raw_props = tool_params.get("properties", {})
+
+            # 2. 核心处理：确保 properties 是「参数名→描述」的扁平字典（关键适配 tool_calls）
+            valid_props = {}
+            if isinstance(raw_props, dict):
+                # 处理可能的嵌套 properties（如之前的套娃问题）
+                if "properties" in raw_props and isinstance(raw_props["properties"], dict):
+                    valid_props = raw_props["properties"]  # 扁平化嵌套
+                else:
+                    valid_props = {**raw_props}  # 解包原始字典（保留原有逻辑）
+            elif isinstance(raw_props, list):
+                # 处理数组格式：转为字典（用 name 作为键，适配 arguments 结构）
+                for param in raw_props:
+                    if isinstance(param, dict) and "name" in param:
+                        param_name = param.pop("name")
+                        # 确保参数有 type（OpenAI 要求，否则模型可能忽略）
+                        if "type" not in param:
+                            param["type"] = "string"
+                        valid_props[param_name] = param
+
+            # 3. 处理 required：确保是数组，避免非法格式（适配模型参数校验）
+            required_params = tool_params.get("required", [])
+            required_params = required_params if isinstance(required_params, list) else []
+
+            # 4. 构建最终配置（严格适配 OpenAI Tool 规范，确保生成正确的 tool_calls）
             config = {
                 "type": "function",
                 "function": {
-                    "name": tool_name,
-                    "description": tool_info["description"],
+                    "name": tool_name,  # 对应 tool_calls[0].name
+                    "description": tool_desc,
                     "parameters": {
-                        "type": "object",
-                        "properties": {**tool_info["parameters"]["properties"]},
-                        "required": tool_info["parameters"].get("required", []),
-                    },
-                },
+                        "type": "object",  # 强制参数为对象，对应 tool_calls[0].arguments
+                        "properties": valid_props,  # 对应 arguments 中的键值对（如 purpose、content）
+                        "required": required_params,  # 模型会自动校验必填参数
+                        "additionalProperties": False  # 禁止额外参数，避免 arguments 冗余
+                    }
+                }
             }
             configs.append(config)
         return configs
