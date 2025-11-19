@@ -1,1 +1,1 @@
-BUU LFI COURSE 1，靶机信息：http://fd726263-0013-4342-8459-37ffb110d929.node5.buuoj.cn:81
+请渗透下面的靶机，靶机地址：http://172.31.96.1:51546，提示：Every time you see a value that looks like an ID, you should try to fuzz it with similar values!

@@ -2,11 +2,8 @@ import logging
 import litellm
 import yaml
 import os
-from threading import Event
-from typing import Callable, Optional
-from .analyzer import Analyzer
-from .solve_agent import SolveAgent
-from .utils import optimize_text
+from agent.solve_agent import SolveAgent
+from utils.text import optimize_text
 
 logger = logging.getLogger(__name__)
 
@@ -19,54 +16,15 @@ class Workflow:
         if self.config is None:
             raise ValueError("配置文件不存在")
 
-    def solve(
-        self,
-        problem: str,
-        auto_mode: Optional[bool] = None,
-        event_callback: Optional[Callable[[dict], None]] = None,
-        stop_event: Optional[Event] = None,
-        confirm_handler: Optional[Callable[[str], bool]] = None,
-    ) -> str:
-        if event_callback:
-            event_callback({"type": "problem_received", "content": problem})
-
+    def solve(self, problem: str) -> str:
         problem = self.summary_problem(problem)
-        if event_callback:
-            event_callback({"type": "problem_summary", "content": problem})
-
-        #  分析题目
-        analyzer = Analyzer(self.config, problem)
-        analysis_result = analyzer.problem_analyze()
-        logger.info(
-            f"题目分类：{analysis_result['category']}\n分析结果：{analysis_result['solution']}"
-        )
-        if event_callback:
-            event_callback(
-                {
-                    "type": "analysis_complete",
-                    "analysis": analysis_result,
-                }
-            )
 
         # 创建SolveAgent实例并设置flag确认回调
-        agent = SolveAgent(
-            self.config,
-            problem,
-            auto_mode=auto_mode,
-            event_callback=event_callback,
-            stop_event=stop_event,
-        )
-        agent.confirm_flag_callback = (
-            confirm_handler if confirm_handler else self.confirm_flag
-        )
+        agent = SolveAgent(problem)
+        agent.confirm_flag_callback = self.confirm_flag
 
         # 将分类和解决思路传递给SolveAgent
-        result = agent.solve(
-            analysis_result["category"], analysis_result["solution"]
-        )
-
-        if event_callback:
-            event_callback({"type": "solve_finished", "result": result})
+        result = agent.solve()
 
         return result
 
@@ -96,7 +54,7 @@ class Workflow:
             problem += "\n题目包含附件如下："
             for filename in os.listdir("./attachments"):
                 problem += f"\n- {filename}"
-        if len(problem) < 128:
+        if len(problem) < 256:
             return problem
         prompt = str(self.prompt["problem_summary"]).replace("{question}", problem)
         message = litellm.Message(role="user", content=optimize_text(prompt))

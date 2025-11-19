@@ -1,60 +1,37 @@
 # prompt.yaml
 problem_summary: |
-  你是一个CTF题目总结专家，现在你需要从题目中总结并提取关键信息。
+  你是一个专业的CTF安全专家，现在你需要从题目中总结并提取关键信息。
   请注意在回复的时候保留题目的关键信息，如文件路径、靶机地址等信息。
   请尽可能让回复更加简洁，不要包含不必要的信息。
   题目内容: {question}
 
-problem_analyze: |
-  你是一个CTF题目分析专家，擅长从题目描述中分析并提供解决方案。
-  题目描述: {question}
-  请返回题目的分类（Web/Pwn/Crypto/Forensics/Reverse）和解决思路。
-  严格按照JSON格式返回：{"category": "分类", "solution": "解决思路"}
+think_next: |
+  你是个CTF选手，你需要根据题目思考下一步操作的内容。
+  题目内容：{{ question }}
+  执行历史: {{ history_summary }}
+  要求:
+  1.将执行历史和当前进展结合起来考虑，注意路径、端点变化和历史输出等一系列可能的暗示。
+  2.请先从访问靶机开始逐步深入，给出明确且清晰的一个操作，要方法、目标、操作的自然语言描述。
+  3.不要迷信自动化工具给的结论，请思考目前解题是否偏离题目提示或者错过了其它暗示的方向。
+  4.不要猜测路径、参数等具体信息。最后回复要简洁，不用给出理由。
+  5.**重要**: 若之前的步骤没有进展，反思哪些步骤考虑欠妥，可尝试不同的方法。
 
 general_next: |
-  你是一个专业的CTF安全专家，需要根据解题思路和当前进展生成下一步操作。
-  题目内容：{{ question }}
-  题目分类：{{ category }}
-  解题思路:{{ solution_plan }}
-  执行历史:
-  {{ history_summary }}
-  可用工具:
-  {% for tool in tool_configs %}
-  - {{ tool['function']['name'] }}: {{ tool['function']['description'] }}
-    {% if 'parameters' in tool['function'] and 'required' in tool['function']['parameters'] %}
-      必填参数: {{ tool['function']['parameters']['required']|join(', ') }}
-    {% endif %}
-  {% endfor %}
+  你是个CTF选手，这是一道渗透题目，题目内容：{{ question }}
+  执行历史：{{ history_summary }}
+  你需要依据这段操作内容生成下一步的操作:{{ solution_plan }}
   任务要求:
-  1. 只生成一个操作（仅一个工具调用）
-  2. 每个工具调用必须包含"purpose"（执行目的）和"content"（执行内容）参数
-  3. 考虑上一步的输出和当前解题进展
-  4.重要: 如果之前的步骤没有进展，请尝试不同的工具或方法。
-  输出格式:
-  请使用工具调用的JSON格式输出，例如：
-  {
-      "tool_calls": [
-        {
-          "name": "工具名称",
-          "arguments": {
-            "purpose": "执行目的描述",
-            "content": "具体执行内容",
-            ...其他参数
-          }
-        }
-      ]
-  }
+  1.只生成一个操作（仅一个工具调用）
+  2.根据操作内容选择最合适的工具去操作
+  3.注意执行历史中频繁出现的错误信息
 
 step_analysis: |
   你是一个专业的CTF安全专家，正在分析解题过程中的命令输出。
   题目内容：{{ question }}
-  原始解题思路:{{ solution_plan }}
-  执行历史:
-  {{ history_summary }}
-  当前步骤:
-  步骤 {{ step_num }}: {{ content }}
-  命令输出:
-  {{ output }}
+  执行历史: {{ history_summary }}
+  执行思路:{{ solution_plan }}
+  当前步骤:{{ content }}
+  命令输出:{{ output }}
   分析任务:
   1. 分析输出是否包含解题线索或错误信息
   2. 检查工具调用是否达到预期效果
@@ -74,32 +51,41 @@ step_analysis: |
   }
 
 reflection: |
-  根据用户反馈重新生成命令。以下是当前情况：
+  根据用户反馈重新思考。以下是当前情况：
   题目内容：{{ question }}
-  原始命令目的: {{ original_purpose }}
+  原始思考目的: {{ original_purpose }}
   用户反馈: {{ feedback }}
-  执行历史:
-  {{ history_summary }}
-  可用工具:
-  {% for tool in tools %}
-  - {{ tool.function_config['function']['name'] }}: {{ tool.function_config['function']['description'] }}
-  {% endfor %}
+  执行历史: {{ history_summary }}
+  你是个CTF选手，你需要根据题目思考下一步操作的内容。
+  题目内容：{{ question }}
+  执行历史: {{ history_summary }}
   要求:
-  1. 保持原始目的
-  2. 解决用户提出的问题
-  3. 使用合适的工具和参数
-  4. 每个工具调用必须包含"purpose"和"content"参数
-  输出格式:
-  请使用工具调用的JSON格式输出，例如：
-  {
-      "tool_calls": [
-        {
-          "name": "工具名称",
-          "arguments": {
-            "purpose": "执行目的描述",
-            "content": "具体执行内容",
-            ...其他参数
-          }
-        }
-      ]
-  }
+  1. 重新思考，使得思考的内容能够与用户的反馈相契合
+  2.将执行历史和当前进展结合起来考虑，注意路径、端点变化和历史输出等一系列可能的暗示。
+  3.请先从访问靶机开始逐步深入，给出明确且清晰的一个操作，要方法、目标、操作的自然语言描述。
+  4.不要迷信自动化工具给的结论，请思考目前解题是否偏离题目提示或者错过了其它暗示的方向。
+  5.不要猜测路径、参数等具体信息。最后回复要简洁，不用给出理由。
+  6.**重要**: 若之前的步骤没有进展，反思哪些步骤考虑欠妥，可尝试不同的方法。
+
+classify_think: |
+  **任务**: 将操作思考分类到正确的工具类别
+  **思考内容**: {{ think_content }}
+  **可用类别**: {{ categories }}
+  **分类决策树**(按顺序判断):
+  1. **包含以下任一关键词→通用类**:
+     - 动作词: 手动、基本、简单、测试、尝试、访问、查看
+     - 工具: curl、wget、浏览器、nc、telnet、python脚本
+     - 操作: 发送请求、创建文件、编写代码、准备payload
+  2. **包含明确工具名→对应类别**:
+     - SQL注入类: sqlmap、手动注入、SQL测试
+     - 扫描类: nmap、masscan、端口扫描、服务探测
+     - Web代理类: burpsuite、抓包、拦截请求
+     - 密码类: hydra、john、爆破、字典攻击
+  3. **不确定→默认"通用类"**
+  **输出**(只返回类别名,无其他内容):
+  [类别名称]
+  **示例**:
+  - "使用curl测试参数" → 通用类
+  - "sqlmap扫描注入点" → SQL注入类
+  - "手动测试SQL注入" → 通用类(包含"手动")
+  - "nmap扫描端口" → 扫描类

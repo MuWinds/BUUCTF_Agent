@@ -2,7 +2,7 @@ import litellm
 import json
 import logging
 from typing import List, Dict
-from .utils import optimize_text
+from utils.text import optimize_text
 
 logger = logging.getLogger(__name__)
 
@@ -185,9 +185,9 @@ class Memory:
             summary += "最近详细步骤:\n"
             for i, step in enumerate(self.history):
                 step_num = len(self.history) - i
-                summary += f"步骤 {step_num}:\n"
-                summary += f"- 目的: {step.get('purpose', '未指定')}\n"
-                summary += f"- 命令: {step['content']}\n"
+                summary += f"步骤 #{step_num}:\n- 思考: {step.get('think', 'N/A')}\n"
+                summary += f"- 工具: {step.get('tool_name', 'N/A')} (类别: {step.get('tool_category', 'N/A')})\n"
+                summary += f"- 参数: {step.get('tool_args', 'N/A')}\n"
 
                 # 显示输出摘要和分析
                 if "output" in step:
