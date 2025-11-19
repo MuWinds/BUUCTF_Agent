@@ -90,61 +90,85 @@ class ToolUtils:
 
     def _classify_tools_with_llm(self, tools_info: List[Dict]) -> Dict:
         """使用大模型对工具进行分类"""
-
+        # 数据预处理
+        simplified_tools = []
+        for tool in tools_info:
+            # 兼容 function call 格式
+            simplified_tools.append({
+                "name": tool.get("name", "Unknown Tool"),
+                "description": tool.get("description", "No description provided")
+            })
+        
+        # 将精简后的工具信息转为 JSON 字符串供 Prompt 使用
+        tools_context = json.dumps(simplified_tools, indent=2, ensure_ascii=False)
         # 第一步：确定工具类别
         category_prompt = f"""
-        请分析以下CTF工具，确定它们应该分为哪些类别。请考虑工具的功能、用途和CTF比赛的类型。
-        例如：nmap、ffuf属于web侦查与发现类，sqlmap、dirb属于web测试类，而ssh命令执行等属于通用类
-        当一个工具不确定什么类别的时候，请返回通用类
-        工具列表如下：
-        {json.dumps(tools_info, indent=2, ensure_ascii=False)}
-        请只返回一个JSON格式的类别列表，不要包含其他内容：
-        {{
-            "categories": ["类别1", "类别2", "类别3", ...]
-        }}
-        """
+                            你是一名CTF网络安全竞赛专家。请根据提供的工具列表（名称和描述），分析它们的功能特性，并制定一个合理的分类体系。
+                            分类原则：
+                            1. 类别应贴合CTF比赛方向（如：Web, Crypto, Pwn, Reverse, Misc, Pentest等）。
+                            2. 如果工具有明显的子领域特征，可以合并为大类（例如 nmap, dirsearch 归为 "信息收集" 或 "Web侦查"）。
+                            3. 对于无法明确归类或多用途的基础工具（如 ssh, cat, grep），请归为 "通用工具"。
+                            工具列表：
+                            {tools_context}
+                            请仅返回一个包含类别的JSON对象，格式如下：
+                            {{
+                                "categories": ["类别A", "类别B", "类别C", "通用工具"]
+                            }}
+                            """
 
         try:
-            # 获取类别
             category_response = self.analyzer_llm.text_completion(
                 prompt=category_prompt, json_check=True
             )
             category_result = category_response.choices[0].message.content
             category_json = json_repair.loads(category_result)
-            categories = category_json.get("categories", {})
+            # 确保 categories 存在且为列表
+            categories = category_json.get("categories", [])
+            if not categories: 
+                raise ValueError("Empty categories returned")
+                
         except Exception as e:
-            logger.warning(f"分类失败，使用默认类别: {e}")
-            categories = ["crypto", "web", "pwn", "reverse", "forensics", "通用"]
+            logger.warning(f"自动生成分类失败，使用默认分类体系: {e}")
+            # 更加标准的 CTF 默认分类
+            categories = ["Web Security", "Binary/Pwn", "Reverse Engineering", "Cryptography", "Forensics", "Misc", "通用类"]
 
-        # 第二步：对工具进行分类
+        # 第二步：将工具映射到类别
         classification_prompt = f"""
-        请将以下CTF工具按照确定的类别进行分类。每个工具只能属于一个最相关的类别。
-        可用类别：{", ".join(categories)}
-        工具列表：
-        {json.dumps(tools_info, indent=2, ensure_ascii=False)}
-        请返回JSON格式的分类结果：
-        {{
-            "categories": {categories},
-            "classification": {{
-                "工具名称1": "类别名称",
-                "工具名称2": "类别名称",
-                ...
-            }}
-        }}
-        """
+                                你是一名CTF工具管理助手。请将以下工具逐一分配到指定的类别中。
+                                可选类别列表：
+                                {json.dumps(categories, ensure_ascii=False)}
+                                待分类工具：
+                                {tools_context}
+                                要求：
+                                1. 每个工具必须且只能属于一个最相关的类别。
+                                2. 严格按照 JSON 格式返回，不要包含 Markdown 标记。
+                                返回格式示例：
+                                {{
+                                    "categories": ["类别A", "类别B"],
+                                    "classification": {{
+                                        "tool_name_1": "类别A",
+                                        "tool_name_2": "类别B"
+                                    }}
+                                }}
+                                """
         try:
             classification_response = self.analyzer_llm.text_completion(
                 prompt=classification_prompt, json_check=True
             )
 
             classification_result = classification_response.choices[0].message.content
-            return json_repair.loads(classification_result)
+            result_json = json_repair.loads(classification_result)
+            
+            # 确保返回结果包含 categories 字段，保持数据结构完整性
+            if "categories" not in result_json:
+                result_json["categories"] = categories
+                
+            return result_json
+            
         except Exception as e:
-            logger.warning(f"工具分类失败: {e}")
-            # 返回默认分类
-            default_classification = {}
-            for tool_info in tools_info:
-                default_classification[tool_info["name"]] = "通用"
+            logger.warning(f"工具分类映射失败: {e}")
+            # 降级处理：全部归为通用
+            default_classification = {tool["name"]: "通用工具" for tool in simplified_tools}
             return {"categories": categories, "classification": default_classification}
 
     def classify_tools(self, function_configs: List[Dict]) -> Dict:
