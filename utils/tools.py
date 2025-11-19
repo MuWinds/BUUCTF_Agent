@@ -237,9 +237,9 @@ class ToolUtils:
             except Exception as e:
                 print(f"加载MCP服务器失败: {str(e)}")
         # 工具分类
-        classification = self.classify_tools(self.function_config)
+        self.tool_classification = self.classify_tools(self.function_config)
 
-        return self.tools, self.function_config, classification
+        return self.tools, self.function_config, self.tool_classification
 
     def classify_think(
         self, problem: str, think_content: str, history_summary: str
@@ -319,17 +319,17 @@ class ToolUtils:
         classification_map: dict = self.tool_classification.get("classification", {})
         return classification_map.get(tool_name, "unknown")
 
-    def parse_tool_response(self, response: ModelResponse) -> Dict:
+    @staticmethod
+    def parse_tool_response(response: ModelResponse) -> Dict:
         """统一解析工具调用响应，处理两种格式的响应"""
         message = response.choices[0].message
-
+        func_name = None
         # 情况1：直接工具调用格式（tool_calls）
         if hasattr(message, "tool_calls") and message.tool_calls:
             tool_call: ChatCompletionMessageToolCall = message.tool_calls[0]
             func_name = tool_call.function.name
             try:
                 args = json.loads(tool_call.function.arguments)
-                print(args)
             except json.JSONDecodeError as e:
                 args = fix_json_with_llm(tool_call.function.arguments, e)
 

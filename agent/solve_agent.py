@@ -266,4 +266,4 @@ class SolveAgent:
             tools=tool_configs,
             tool_choice="auto",
         )
-        return think, self.tool.parse_tool_response(response)
+        return think, ToolUtils.parse_tool_response(response)
