@@ -4,7 +4,7 @@ import logging
 from config import Config
 from ctf_tool.base_tool import BaseTool
 from agent.analyzer import Analyzer
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, List
 from agent.memory import Memory
 from utils.llm_request import LLMRequest
 from jinja2 import Environment, FileSystemLoader
@@ -27,7 +27,6 @@ class SolveAgent:
 
         # 初始化记忆系统
         self.memory = Memory(
-            config=self.config,
             max_steps=self.config.get("max_history_steps", 10),
             compression_threshold=self.config.get("compression_threshold", 5),
         )
@@ -154,7 +153,8 @@ class SolveAgent:
                     "tool_args": arguments,
                     "output": output,
                     "analysis": analysis_result,
-                }
+                },
+                current_problem=self.problem,
             )
 
             # 检查是否应该提前终止

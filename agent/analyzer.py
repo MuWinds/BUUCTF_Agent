@@ -16,11 +16,7 @@ class Analyzer:
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
 
     def analyze_step_output(
-        self,
-        memory: Memory,
-        think: str,
-        content: str,
-        output: str
+        self, memory: Memory, think: str, content: str, output: str
     ) -> Dict:
         """
         使用LLM分析步骤输出
@@ -31,7 +27,7 @@ class Analyzer:
         :return: 分析结果字典
         """
         # 获取记忆摘要
-        history_summary = memory.get_summary()
+        history_summary = memory.get_summary(current_problem=self.problem)
 
         # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("step_analysis", ""))

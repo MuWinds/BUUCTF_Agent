@@ -26,14 +26,13 @@ class LLMRequest:
         return response
 
     def embedding(
-        self, prompt: str, **kwargs
+        self, text: str, **kwargs
     ) -> Union[ModelResponse, CustomStreamWrapper]:
-        message = litellm.Message(role="user", content=optimize_text(prompt))
         response = litellm.embedding(
             model=self.llm_config["model"],
             api_key=self.llm_config["api_key"],
             api_base=self.llm_config["api_base"],
-            messages=message,
+            input=text,
             **kwargs
         )
         return response

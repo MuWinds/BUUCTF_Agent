@@ -1,1 +1,1 @@
-请渗透下面的靶机，靶机地址：http://172.31.96.1:51546，提示：Every time you see a value that looks like an ID, you should try to fuzz it with similar values!
+BUU UPLOAD COURSE 1，靶机地址：http://92195aea-e03f-48e1-9d16-e5652acdf0df.node5.buuoj.cn:81
