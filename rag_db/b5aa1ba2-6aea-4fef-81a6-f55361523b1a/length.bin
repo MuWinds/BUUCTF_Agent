@@ -1,1 +1,1 @@
-invalid type: string "JWT令牌验证缺陷\n漏洞原理\nJWT验证不完整导致权限绕过。虽然验证了令牌有效性，但未严格验证令牌主体与操作对象的一致性。\nJWT结构：JWT由Base64Url编码的Header、Payload和Signature组成，格式为Header.Payload.Signature。\nHeader：包含算法（alg）和类型（typ），如{\"alg\": \"HS256\", \"typ\": \"JWT\"}。�
+invalid type: string "SQL注入\n1. 漏洞概述\n1.1 漏洞名称\nSQL注入（SQL Injection）与关键字过滤绕过\n1.2 漏洞描述\nSQL注入是一种常见的安全漏洞，攻击者通过操纵用户输入（如表单字段、API参数）来修改后端SQL查询的逻辑，从而未经授权访问、修改或删除数据库中的数据。\n1.3 常见标签：sqli, idor, injection\nanexpe

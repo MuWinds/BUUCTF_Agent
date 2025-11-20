@@ -2,6 +2,7 @@ import time
 import yaml
 import logging
 from config import Config
+from rag.knowledge_base import KnowledgeBase
 from ctf_tool.base_tool import BaseTool
 from agent.analyzer import Analyzer
 from typing import Dict, Tuple, List
@@ -19,6 +20,7 @@ class SolveAgent:
         self.solve_llm = LLMRequest("solve_agent")
         self.problem = problem
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
+        self.knowledge_base = KnowledgeBase()  # 在此处初始化知识库
         if self.config is None:
             raise ValueError("找不到配置文件")
 
@@ -226,6 +228,8 @@ class SolveAgent:
         think_prompt = template.render(
             question=self.problem, history_summary=history_summary
         )
+        relevant_knowledge = self.knowledge_base.get_relevant_knowledge(think_prompt)
+        think_prompt += f"\n相关知识库内容仅供参考:\n{relevant_knowledge}\n"
         # 调用LLM思考下一步
         response = self.solve_llm.text_completion(prompt=think_prompt, json_check=False)
         think_content = response.choices[0].message.content
