@@ -107,9 +107,6 @@ class SolveAgent:
                 tool_name = tool_arg.get("tool_name")
                 arguments = tool_arg.get("arguments", {})
 
-            # 获取工具类别
-            tool_category = self.tool.get_tool_category(tool_name)
-
             if tool_name in self.tools:
                 try:
                     tool = self.tools[tool_name]
@@ -150,13 +147,10 @@ class SolveAgent:
                 {
                     "step": step_count,
                     "think": think,
-                    "tool_name": tool_name,  # 新增：工具名称
-                    "tool_category": tool_category,  # 新增：工具类别
                     "tool_args": arguments,
                     "output": output,
                     "analysis": analysis_result,
-                },
-                current_problem=self.problem,
+                }
             )
 
             # 检查是否应该提前终止

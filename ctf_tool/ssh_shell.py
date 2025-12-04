@@ -78,7 +78,7 @@ class SSHShell(BaseTool):
                 except UnicodeDecodeError:
                     return data.decode("utf-8", errors="replace")
 
-            return safe_decode(stdout_bytes), safe_decode(stderr_bytes)
+            return safe_decode(stdout_bytes)+safe_decode(stderr_bytes)
 
         except Exception as e:
             logger.error(f"命令执行失败: {str(e)}")

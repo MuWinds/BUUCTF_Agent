@@ -27,7 +27,7 @@ class Analyzer:
         :return: 分析结果字典
         """
         # 获取记忆摘要
-        history_summary = memory.get_summary(current_problem=self.problem)
+        history_summary = memory.get_summary()
 
         # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("step_analysis", ""))

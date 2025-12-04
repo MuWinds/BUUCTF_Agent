@@ -45,7 +45,7 @@ class PythonTool(BaseTool):
 
         return choice == "2"
 
-    def execute(self, tool_name: str, arguments: dict) -> Tuple[str, str]:
+    def execute(self, tool_name: str, arguments: dict) -> str:
         """执行Python代码"""
         content = arguments.get("content", "")
 
@@ -63,7 +63,7 @@ class PythonTool(BaseTool):
                 [sys.executable, tmp_path], capture_output=True, text=True, timeout=30
             )
             os.unlink(tmp_path)
-            return result.stdout, result.stderr
+            return result.stdout+result.stderr
         except Exception as e:
             return "", str(e)
 

@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 class BaseTool(ABC):
     @abstractmethod
-    def execute(self, *args, **kwargs) -> Tuple[str, str]:
+    def execute(self, *args, **kwargs) -> str:
         """执行工具操作"""
         pass
 
