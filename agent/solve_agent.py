@@ -42,7 +42,7 @@ class SolveAgent:
 
         # 加载ctf_tools文件夹中的所有工具
         self.tool = ToolUtils()
-        self.tools, self.function_configs, _ = self.tool.load_tools()
+        self.tools, self.function_configs = self.tool.load_tools()
 
         # 添加模式设置
         self._select_mode()
@@ -115,7 +115,7 @@ class SolveAgent:
                     output = (
                         ToolUtils.output_summary(tool_name, tool_arg, think, result)
                         if result
-                        else "无输出内容"
+                        else "注意！无输出内容！"
                     )  # 获取输出内容
                 except Exception as e:
                     output = f"工具执行出错: {str(e)}"
@@ -158,7 +158,9 @@ class SolveAgent:
                 print("LLM建议提前终止解题")
                 return "未找到flag：提前终止"
 
-    def manual_approval_step(self, next_step: Tuple[str, Dict]) -> Tuple[bool, Tuple[str, Dict]]:
+    def manual_approval_step(
+        self, next_step: Tuple[str, Dict]
+    ) -> Tuple[bool, Tuple[str, Dict]]:
         """手动模式：让用户无限次反馈/重思，直到 ta 主动选 1 或 3"""
         while True:
             think, _ = next_step
@@ -182,7 +184,7 @@ class SolveAgent:
 
     def reflection(self, think: str, feedback: str) -> Tuple[str, Dict]:
         """
-        根据用户反馈重新生成命令，返回的是“LLM 重新思考后的 next_step”，后续仍需让用户再次确认。
+        根据用户反馈重新生成思考内容，返回的是“LLM 重新思考后的 next_step”，后续仍需让用户再次确认。
         """
         # 获取记忆摘要
         history_summary = self.memory.get_summary(self.problem)
@@ -198,16 +200,9 @@ class SolveAgent:
         response = self.solve_llm.text_completion(prompt=think_prompt, json_check=False)
         think_content = response.choices[0].message.content
         logger.info(f"执行目的: {think_content}")
+        category_tools = self.tool.recommend_tools(think_content, 3)
 
-        # 对思考内容进行分类
-        category = self.tool.classify_think(
-            self.problem, think_content, history_summary
-        )
-        category_tools = self.tool.get_tools_by_category(category)
-
-        think_content, tool_arg = self.tool_general(
-            history_summary, think_content, category_tools
-        )
+        tool_arg = self.tool_general(history_summary, category_tools)
         return think_content, tool_arg
 
     def next_instruction(self) -> Tuple[str, Dict]:
@@ -228,16 +223,9 @@ class SolveAgent:
         response = self.solve_llm.text_completion(prompt=think_prompt, json_check=False)
         think_content = response.choices[0].message.content
         logger.info(f"执行目的: {think_content}")
+        tools = self.tool.recommend_tools(think_content, 3)
 
-        # 对思考内容进行分类
-        category = self.tool.classify_think(
-            self.problem, think_content, history_summary
-        )
-        category_tools = self.tool.get_tools_by_category(category)
-
-        think_content, tool_arg = self.tool_general(
-            history_summary, think_content, category_tools
-        )
+        tool_arg = self.tool_general(history_summary, think_content, tools)
         return think_content, tool_arg
 
     def tool_general(
@@ -257,11 +245,10 @@ class SolveAgent:
             question=self.problem,
             solution_plan=think,
             history_summary=history_summary,
+            tools=tool_configs,
         )
         response = self.solve_llm.text_completion(
             prompt=step_prompt,
             json_check=True,
-            tools=tool_configs,
-            tool_choice="auto",
         )
-        return think, ToolUtils.parse_tool_response(response)
+        return ToolUtils.parse_tool_response(response)

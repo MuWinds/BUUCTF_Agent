@@ -34,12 +34,21 @@ def fix_json_with_llm(json_str: str, err_content: str) -> str:
 
 
 def optimize_text(text: str) -> str:
-    # 把连续 2 个及以上空格 → 先统一替换成一个特殊标记
-    text = re.sub(r" {2,}", "\x00", text)  # \x00 几乎不会出现在正文里
-    # 把特殊标记还原成唯一一个空格
-    text = text.replace("\x00", " ")
-    text = re.sub(r"\n+", "\n", text)
-    lines = [line for line in text.splitlines() if line.strip()]
-    return "\n".join(lines)
+    """
+    缩减 Prompt：
+    将连续重复的空白字符（空格、换行、制表符等）压缩为单个字符。
+    例如：
+    - 连续的 "  " -> " "
+    - 连续的 "\n\n\n" -> "\n"
+    - 连续的 "\t\t" -> "\t"
+    """
+    # 正则表达式解释：
+    # (\s) : 捕获组1，匹配任意空白字符（包括空格、\n, \t, \r 等）
+    # \1+  : 引用捕获组1，匹配前面捕获到的那个字符连续出现 1 次或多次
+    # r"\1": 将匹配到的整个序列替换为捕获组1的内容（即保留一个原字符）
+    text = re.sub(r"(\s)\1+", r"\1", text)
+    
+    # 通常为了 Prompt 干净，建议最后去掉首尾的空白
+    return text.strip()
 
 

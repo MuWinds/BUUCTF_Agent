@@ -1,9 +1,11 @@
 import litellm
+import logging
 from config import Config
 from utils.text import optimize_text
 from litellm.utils import ModelResponse, CustomStreamWrapper
 from typing import Union
 
+logger = logging.getLogger(__name__)
 
 class LLMRequest:
     def __init__(self, model: str):
@@ -23,6 +25,7 @@ class LLMRequest:
             messages=[message],
             **kwargs
         )
+        logger.debug(f"LLM Response Message: {response.choices[0].message.content}")
         return response
 
     def embedding(

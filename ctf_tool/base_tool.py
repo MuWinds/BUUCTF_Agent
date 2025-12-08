@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # 工具基类
 from abc import ABC, abstractmethod
-from typing import Dict, Tuple
+from typing import Dict
 import logging
 
 logger = logging.getLogger(__name__)

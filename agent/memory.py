@@ -1,5 +1,6 @@
 import litellm
 import json
+import json_repair
 import logging
 from config import Config
 from typing import List, Dict
@@ -111,7 +112,7 @@ class Memory:
 
             # 解析并存储压缩记忆
             json_str = response.choices[0].message.content.strip()
-            compressed_data = json.loads(json_str)
+            compressed_data = json_repair.loads(json_str)
 
             # 更新失败尝试记录
             for attempt in compressed_data.get("failed_attempts", []):
@@ -126,7 +127,6 @@ class Memory:
             )
 
         except (json.JSONDecodeError, KeyError) as e:
-            print(f"记忆压缩解析失败: {str(e)}")
             # 回退到文本摘要
             fallback = (
                 response.choices[0].message.content.strip()

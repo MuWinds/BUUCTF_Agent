@@ -5,7 +5,7 @@ import hashlib
 import importlib
 import inspect
 import logging
-import json_repair
+import numpy as np
 from config import Config
 from typing import Dict, List, Tuple
 from ctf_tool.base_tool import BaseTool
@@ -21,334 +21,225 @@ class ToolUtils:
     def __init__(self):
         self.config = Config.load_config()
         self.analyzer_llm = LLMRequest("analyzer")
-        self.function_config = []
-        self.tools = {}
+        self.embedding_llm = LLMRequest("embedding")  # 新增 Embedding 模型请求
+        
+        self.tools = {} # 存储所有工具实例 {name: instance}
+        
+        # 分离两类配置
+        self.local_function_configs = [] # 本地工具配置 (默认全注入)
+        self.mcp_function_configs = []   # MCP工具配置 (需要检索)
+        
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         if self.config is None:
             raise ValueError("找不到配置文件")
 
-        # 初始化Jinja2模板环境
         self.env = Environment(loader=FileSystemLoader("."))
-        self.tool_classification: Dict = {}  # 工具分类信息
-        self.classification_file = os.path.join(
-            os.path.dirname(__file__), "..", "tool_classification.json"
-        )
-        self.tools_hash_file = os.path.join(
-            os.path.dirname(__file__), "..", "tools_hash.txt"
-        )
-
-    def _calculate_tools_hash(self, tools_info: List[Dict]) -> str:
-        """计算工具信息的哈希值"""
-        tools_str = json.dumps(tools_info, sort_keys=True)
-        return hashlib.md5(tools_str.encode()).hexdigest()
-
-    def _get_tools_info(self, function_configs: List[Dict]) -> List[Dict]:
-        """获取工具的基本信息用于分类"""
-        tools_info = []
-        for config in function_configs:
-            tool_info = {
-                "name": config["function"]["name"],
-                "description": config["function"].get("description", ""),
-                "parameters": config["function"].get("parameters", {}),
-            }
-            tools_info.append(tool_info)
-        return tools_info
-
-    def _needs_reclassification(self, current_hash: str) -> bool:
-        """判断是否需要重新分类"""
-        if not os.path.exists(self.classification_file) or not os.path.exists(
-            self.tools_hash_file
-        ):
-            return True
-
-        try:
-            with open(self.tools_hash_file, "r") as f:
-                saved_hash = f.read().strip()
-            return saved_hash != current_hash
-        except:
-            return True
-
-    def _save_classification(self, classification: Dict, tools_hash: str):
-        """保存分类结果"""
-        # 确保目录存在
-        os.makedirs(os.path.dirname(self.classification_file), exist_ok=True)
-
-        with open(self.classification_file, "w", encoding="utf-8") as f:
-            json.dump(classification, f, indent=2, ensure_ascii=False)
-
-        with open(self.tools_hash_file, "w") as f:
-            f.write(tools_hash)
-
-    def _load_classification(self) -> Dict:
-        """加载已有的分类结果"""
-        logger.info("加载已有的工具分类结果")
-        try:
-            with open(self.classification_file, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except:
-            return {}
-
-    def _classify_tools_with_llm(self, tools_info: List[Dict]) -> Dict:
-        """使用大模型对工具进行分类"""
-        # 数据预处理
-        simplified_tools = []
-        for tool in tools_info:
-            # 兼容 function call 格式
-            simplified_tools.append({
-                "name": tool.get("name", "Unknown Tool"),
-                "description": tool.get("description", "No description provided")
-            })
         
-        # 将精简后的工具信息转为 JSON 字符串供 Prompt 使用
-        tools_context = json.dumps(simplified_tools, indent=2, ensure_ascii=False)
-        # 第一步：确定工具类别
-        category_prompt = f"""
-                            你是一名CTF网络安全竞赛专家。请根据提供的工具列表（名称和描述），分析它们的功能特性，并制定一个合理的分类体系。
-                            分类原则：
-                            1. 类别应贴合CTF比赛方向（如：Web, Crypto, Pwn, Reverse, Misc, Pentest等）。
-                            2. 如果工具有明显的子领域特征，可以合并为大类（例如 nmap, dirsearch 归为 "信息收集" 或 "Web侦查"）。
-                            3. 对于无法明确归类或多用途的基础工具（如 ssh, cat, grep），请归为 "通用工具"。
-                            工具列表：
-                            {tools_context}
-                            请仅返回一个包含类别的JSON对象，格式如下：
-                            {{
-                                "categories": ["类别A", "类别B", "类别C", "通用工具"]
-                            }}
-                            """
+        # 向量缓存文件
+        self.embeddings_cache_file = os.path.join(
+            os.path.dirname(__file__), "..", "tool_embeddings_cache.json"
+        )
+        self.tool_embeddings_map = self._load_embeddings_cache()
 
+    def _calculate_tool_hash(self, tool_config: Dict) -> str:
+        """计算单个工具配置的哈希值，用于判断描述是否变更"""
+        # 主要基于名字和描述计算hash
+        info = {
+            "name": tool_config["function"]["name"],
+            "description": tool_config["function"].get("description", ""),
+            "parameters": str(tool_config["function"].get("parameters", {}))
+        }
+        return hashlib.md5(json.dumps(info, sort_keys=True).encode()).hexdigest()
+
+    def _load_embeddings_cache(self) -> Dict:
+        """加载向量缓存"""
+        if os.path.exists(self.embeddings_cache_file):
+            try:
+                with open(self.embeddings_cache_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning(f"加载向量缓存失败: {e}")
+        return {}
+
+    def _save_embeddings_cache(self):
+        """保存向量缓存"""
         try:
-            category_response = self.analyzer_llm.text_completion(
-                prompt=category_prompt, json_check=True
-            )
-            category_result = category_response.choices[0].message.content
-            category_json = json_repair.loads(category_result)
-            # 确保 categories 存在且为列表
-            categories = category_json.get("categories", [])
-            if not categories: 
-                raise ValueError("Empty categories returned")
-                
+            with open(self.embeddings_cache_file, "w", encoding="utf-8") as f:
+                json.dump(self.tool_embeddings_map, f, ensure_ascii=False)
         except Exception as e:
-            logger.warning(f"自动生成分类失败，使用默认分类体系: {e}")
-            # 更加标准的 CTF 默认分类
-            categories = ["Web Security", "Binary/Pwn", "Reverse Engineering", "Cryptography", "Forensics", "Misc", "通用类"]
+            logger.error(f"保存向量缓存失败: {e}")
 
-        # 第二步：将工具映射到类别
-        classification_prompt = f"""
-                                你是一名CTF工具管理助手。请将以下工具逐一分配到指定的类别中。
-                                可选类别列表：
-                                {json.dumps(categories, ensure_ascii=False)}
-                                待分类工具：
-                                {tools_context}
-                                要求：
-                                1. 每个工具必须且只能属于一个最相关的类别。
-                                2. 严格按照 JSON 格式返回，不要包含 Markdown 标记。
-                                返回格式示例：
-                                {{
-                                    "categories": ["类别A", "类别B"],
-                                    "classification": {{
-                                        "tool_name_1": "类别A",
-                                        "tool_name_2": "类别B"
-                                    }}
-                                }}
-                                """
+    def _get_embedding(self, text: str) -> List[float]:
+        """调用模型获取向量 (参考 RAG Service)"""
         try:
-            classification_response = self.analyzer_llm.text_completion(
-                prompt=classification_prompt, json_check=True
-            )
-
-            classification_result = classification_response.choices[0].message.content
-            result_json = json_repair.loads(classification_result)
-            
-            # 确保返回结果包含 categories 字段，保持数据结构完整性
-            if "categories" not in result_json:
-                result_json["categories"] = categories
-                
-            return result_json
-            
+            # 注意：这里假设 LLMRequest.embedding 返回格式与 litellm 或 openai 格式兼容
+            # 如果是 list[str]，通常返回 data list
+            response = self.embedding_llm.embedding(text=[text])
+            # 根据 litellm 结构获取 embedding
+            return response.data[0]["embedding"]
         except Exception as e:
-            logger.warning(f"工具分类映射失败: {e}")
-            # 降级处理：全部归为通用
-            default_classification = {tool["name"]: "通用工具" for tool in simplified_tools}
-            return {"categories": categories, "classification": default_classification}
+            logger.error(f"获取嵌入向量失败: {e}")
+            # 发生错误返回空向量或零向量，避免程序崩溃
+            return []
 
-    def classify_tools(self, function_configs: List[Dict]) -> Dict:
-        """分类工具的主要接口"""
-        tools_info = self._get_tools_info(function_configs)
-        current_hash = self._calculate_tools_hash(tools_info)
+    def _update_mcp_embeddings(self):
+        """检查并更新 MCP 工具的向量"""
+        has_updates = False
+        
+        for config in self.mcp_function_configs:
+            tool_name = config["function"]["name"]
+            description = config["function"].get("description", "")
+            # 组合名称和描述以增强检索语义
+            text_to_embed = f"{tool_name}: {description}"
+            current_hash = self._calculate_tool_hash(config)
+            
+            # 检查缓存是否存在且未过期
+            cached_data = self.tool_embeddings_map.get(tool_name)
+            
+            if not cached_data or cached_data.get("hash") != current_hash:
+                logger.info(f"正在生成工具向量: {tool_name}")
+                embedding = self._get_embedding(text_to_embed)
+                if embedding:
+                    self.tool_embeddings_map[tool_name] = {
+                        "hash": current_hash,
+                        "embedding": embedding,
+                        "text": text_to_embed
+                    }
+                    has_updates = True
+            
+        if has_updates:
+            self._save_embeddings_cache()
+            logger.info("工具向量缓存已更新")
 
-        # 检查是否需要重新分类
-        if not self._needs_reclassification(current_hash):
-            return self._load_classification()
-
-        # 需要重新分类
-        logger.info("工具发生变化，正在重新分类...")
-        classification = self._classify_tools_with_llm(tools_info)
-
-        # 保存分类结果
-        self._save_classification(classification, current_hash)
-        logger.info("工具分类完成并已保存")
-
-        return classification
-
-    def load_tools(self) -> Tuple[Dict, list, Dict]:
-        """动态加载tool文件夹中的所有工具，并返回工具字典、配置列表和分类信息"""
-        # 加载配置文件
+    def load_tools(self) -> Tuple[Dict, list]:
+        """
+        加载工具，区分本地工具和MCP工具
+        返回: (所有工具实例字典, 所有工具配置列表)
+        """
         config = Config.load_config()
         tools_dir = os.path.join(os.path.dirname(__file__), "..", "ctf_tool")
 
-        # 加载本地工具
+        # 重置列表
+        self.local_function_configs = []
+        self.mcp_function_configs = []
+        self.tools = {}
+
+        # 1. 加载本地工具 (Local Tools) - 默认全注入
         for file_name in os.listdir(tools_dir):
             if (
                 file_name.endswith(".py")
-                and file_name != "__init__.py"
-                and file_name != "base_tool.py"
-                and file_name != "mcp_adapter.py"  # 排除MCP文件
+                and file_name not in ["__init__.py", "base_tool.py", "mcp_adapter.py"]
             ):
-                module_name = file_name[:-3]  # 移除.py
+                module_name = file_name[:-3]
                 try:
-                    # 导入模块
                     module = importlib.import_module(f"ctf_tool.{module_name}")
-
-                    # 查找所有继承自BaseTool的类
                     for name, obj in inspect.getmembers(module):
                         if (
                             inspect.isclass(obj)
                             and issubclass(obj, BaseTool)
                             and obj != BaseTool
                         ):
-                            # 检查是否需要特殊配置
+                            # 实例化
                             if name in config.get("tool_config", {}):
-                                # 使用配置创建实例
-                                tool_config = config["tool_config"][name]
-                                tool_instance = obj(tool_config)
+                                tool_instance = obj(config["tool_config"][name])
                             else:
-                                # 创建默认实例
                                 tool_instance = obj()
 
-                            # 添加到工具字典
-                            tool_name = tool_instance.function_config["function"][
-                                "name"
-                            ]
+                            tool_name = tool_instance.function_config["function"]["name"]
+                            
+                            # 注册到工具字典
                             self.tools[tool_name] = tool_instance
-
-                            # 添加工具配置
-                            self.function_config.append(tool_instance.function_config)
-
-                            logger.info(f"已加载工具: {tool_name}")
+                            # 添加到本地配置列表
+                            self.local_function_configs.append(tool_instance.function_config)
+                            logger.info(f"已加载本地工具: {tool_name}")
                 except Exception as e:
-                    print(f"加载工具{module_name}失败: {str(e)}")
+                    logger.error(f"加载本地工具{module_name}失败: {str(e)}")
 
-        # 加载MCP服务器工具
-        mcp_servers: dict = config.get("mcp_server", {})  # 注意键名大小写
-
-        # 遍历MCP服务器配置
+        # 2. 加载 MCP 工具 (MCP Tools) - 需要 RAG 检索
+        mcp_servers: dict = config.get("mcp_server", {})
         for server_name, server_config in mcp_servers.items():
             try:
                 from ctf_tool.mcp_adapter import MCPServerAdapter
-
-                # 添加服务器名称到配置
                 server_config["name"] = server_name
                 adapter = MCPServerAdapter(server_config)
 
-                # 添加MCP工具的函数配置
                 for mcp_tool_config in adapter.get_tool_configs():
                     tool_name = mcp_tool_config["function"]["name"]
-                    # 适配器实例负责执行此工具
                     self.tools[tool_name] = adapter
-                    self.function_config.append(mcp_tool_config)
+                    self.mcp_function_configs.append(mcp_tool_config)
 
                 logger.info(f"已加载MCP服务器: {server_name}")
             except Exception as e:
-                print(f"加载MCP服务器失败: {str(e)}")
-        # 工具分类
-        self.tool_classification = self.classify_tools(self.function_config)
+                logger.error(f"加载MCP服务器失败: {str(e)}")
 
-        return self.tools, self.function_config, self.tool_classification
+        # 3. 更新 MCP 工具的向量
+        if self.mcp_function_configs:
+            self._update_mcp_embeddings()
 
-    def classify_think(
-        self, problem: str, think_content: str, history_summary: str
-    ) -> str:
+        # 返回所有工具供 invoke 使用，列表返回全部以防万一
+        all_configs = self.local_function_configs + self.mcp_function_configs
+        return self.tools, all_configs
+
+    def recommend_tools(self, query: str, top_k: int = 3) -> List[Dict]:
         """
-        对思考内容进行分类，确定应该使用哪类工具
-        :param think_content: 思考内容
-        :return: 工具类别名称
+        根据查询内容推荐工具
+        逻辑：返回 [所有本地工具] + [Top-K 相似的 MCP 工具]
         """
-        if not self.tool_classification or not self.tool_classification.get(
-            "categories"
-        ):
-            logger.warning("没有可用的工具分类信息，使用所有工具")
-            return "all"  # 如果没有分类信息，使用所有工具
-        analyzer_llm = LLMRequest("analyzer")
-        categories = self.tool_classification.get("categories", [])
+        # 如果没有 MCP 工具，直接返回本地工具
+        if not self.mcp_function_configs:
+            return self.local_function_configs
 
-        # 使用LLM对思考内容进行分类
-        template = self.env.from_string(self.prompt.get("classify_think", ""))
-        classify_prompt = template.render(
-            think_content=think_content,
-            history_summary=history_summary,
-            categories=categories,
-            problem=problem,
-        )
+        # 1. 获取 Query 向量
+        query_embedding = self._get_embedding(query)
+        if not query_embedding:
+            logger.warning("无法获取查询向量，返回所有工具")
+            return self.local_function_configs + self.mcp_function_configs
 
-        try:
-            response = analyzer_llm.text_completion(
-                prompt=classify_prompt, json_check=False
-            )
-
-            category = response.choices[0].message.content.strip()
-
-            # 验证分类结果是否在可用类别中
-            if category in categories:
-                logger.info(f"思考内容分类为: {category}")
-                return category
+        # 2. 计算相似度
+        scores = []
+        for config in self.mcp_function_configs:
+            tool_name = config["function"]["name"]
+            cached = self.tool_embeddings_map.get(tool_name)
+            
+            if cached and "embedding" in cached:
+                tool_vec = cached["embedding"]
+                # 计算余弦相似度
+                similarity = self._cosine_similarity(query_embedding, tool_vec)
+                scores.append((similarity, config))
             else:
-                logger.warning(f"分类结果 '{category}' 不在可用类别中，使用所有工具")
-                return "all"
+                # 如果没有向量，暂时给个低分或默认不推荐
+                scores.append((-1.0, config))
 
-        except Exception as e:
-            logger.error(f"思考内容分类失败: {e}，使用所有工具")
-            return "all"
+        # 3. 排序并取 Top-K
+        scores.sort(key=lambda x: x[0], reverse=True)
+        top_mcp_tools = [item[1] for item in scores[:top_k]]
+        logger.info(f"RAG 命中 MCP 工具: {[t['function']['name'] for t in top_mcp_tools]}")
 
-    def get_tools_by_category(self, category: str) -> List[Dict]:
-        """
-        根据类别获取对应的工具配置
-        :param category: 工具类别
-        :return: 该类别下的工具配置列表
-        """
-        if category == "all" or category not in self.tool_classification.get(
-            "categories", []
-        ):
-            return self.function_config  # 返回所有工具
+        # 4. 合并结果
+        return self.local_function_configs + top_mcp_tools
 
-        classification_map = self.tool_classification.get("classification", {})
-        category_tools = []
-
-        for tool_config in self.function_config:
-            tool_name = tool_config["function"]["name"]
-            if classification_map.get(tool_name) == category:
-                category_tools.append(tool_config)
-
-        logger.info(f"类别 '{category}' 下有 {len(category_tools)} 个工具")
-        return category_tools
-
-    def get_tool_category(self, tool_name: str) -> str:
-        """
-        根据工具名称获取工具类别
-        :param tool_name: 工具名称
-        :return: 工具类别名称
-        """
-        if not self.tool_classification:
-            return "unknown"
-
-        classification_map: dict = self.tool_classification.get("classification", {})
-        return classification_map.get(tool_name, "unknown")
+    @staticmethod
+    def _cosine_similarity(vec_a: List[float], vec_b: List[float]) -> float:
+        """计算余弦相似度"""
+        if not vec_a or not vec_b:
+            return 0.0
+        try:
+            a = np.array(vec_a)
+            b = np.array(vec_b)
+            norm_a = np.linalg.norm(a)
+            norm_b = np.linalg.norm(b)
+            if norm_a == 0 or norm_b == 0:
+                return 0.0
+            return float(np.dot(a, b) / (norm_a * norm_b))
+        except Exception:
+            return 0.0
 
     @staticmethod
     def parse_tool_response(response: ModelResponse) -> Dict:
-        """统一解析工具调用响应，处理两种格式的响应"""
+        """统一解析工具调用响应"""
         message = response.choices[0].message
         func_name = None
-        # 情况1：直接工具调用格式（tool_calls）
+        
         if hasattr(message, "tool_calls") and message.tool_calls:
             tool_call: ChatCompletionMessageToolCall = message.tool_calls[0]
             func_name = tool_call.function.name
@@ -356,27 +247,27 @@ class ToolUtils:
                 args = json.loads(tool_call.function.arguments)
             except json.JSONDecodeError as e:
                 args = fix_json_with_llm(tool_call.function.arguments, e)
-
-        # 情况2：JSON字符串格式
         else:
             content = message.content.strip()
-            # 尝试直接解析JSON
             try:
                 data = json.loads(content)
             except json.JSONDecodeError as e:
-                print("无法解析工具调用响应，尝试修复")
+                logger.warning("无法直接解析JSON，尝试修复")
                 content = fix_json_with_llm(content, e)
-                data = json.loads(content)
-            except Exception as e:
-                print(f"无法解析工具调用响应：{e}")
-                return {}
+                try:
+                    data = json.loads(content)
+                except:
+                    return {}
+            
             if "tool_calls" in data and data["tool_calls"]:
-                tool_call: dict = data["tool_calls"][0]
-                func_name: dict = tool_call.get("name", "工具解析失败")
-                args: dict = tool_call.get("arguments", {})
+                tool_call = data["tool_calls"][0]
+                func_name = tool_call.get("name")
+                args = tool_call.get("arguments", {})
+            else:
+                return {}
 
         logger.info(f"使用工具: {func_name}")
-        logger.info(f"执行内容:\n{args}")
+        logger.info(f"参数: {args}")
         return {"tool_name": func_name, "arguments": args}
 
     @staticmethod
