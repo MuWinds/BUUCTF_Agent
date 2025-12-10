@@ -3,7 +3,7 @@ import logging
 from config import Config
 from utils.text import optimize_text
 from litellm.utils import ModelResponse, CustomStreamWrapper
-from typing import Union
+from typing import Union, List
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,11 @@ class LLMRequest:
         return response
 
     def embedding(
-        self, text: str, **kwargs
+        self, text: Union[str, List[str]], **kwargs
     ) -> Union[ModelResponse, CustomStreamWrapper]:
+        # 确保 text 是列表格式（litellm.embedding 需要列表）
+        if isinstance(text, str):
+            text = [text]
         response = litellm.embedding(
             model=self.llm_config["model"],
             api_key=self.llm_config["api_key"],
