@@ -1,7 +1,7 @@
 # BUUCTF_Agent
 ![image](https://github.com/MuWinds/BUUCTF_Agent/blob/main/1.png)
 
-![image](https://github.com/MuWinds/BUUCTF_Agent/blob/main/tch_logo.png)(https://zc.tencent.com/competition/competitionHackathon?code=cha004)
+[![image](https://github.com/MuWinds/BUUCTF_Agent/blob/main/tch_logo.png)](https://zc.tencent.com/competition/competitionHackathon?code=cha004)
 ## 背景
 
 起源于[@MuWinds](https://github.com/MuWinds)闲来无事，所以打算写个Ai Agent练手
