@@ -39,9 +39,11 @@ class KnowledgeBase(BaseVectorStore):
 
     def add_general_knowledge(self, content: str, tags: List[str] = None) -> str:
         """添加通用的CTF知识或技巧"""
+        # ChromaDB metadata 不支持列表，需要转换为字符串
+        tags_str = ",".join(tags) if tags else ""
         metadata = {
             "type": "general_knowledge",
-            "tags": tags or [],
+            "tags": tags_str,  # 转换为逗号分隔的字符串
             "timestamp": datetime.now().isoformat(),
         }
         doc_id = hashlib.md5(content.encode()).hexdigest()[:16]
