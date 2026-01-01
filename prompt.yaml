@@ -23,13 +23,13 @@ think_next: |
   输出格式（必须是有效的JSON格式）：
   {
     "think": "你的思考内容，解释为什么要做这个操作",
-    "tool_call": {
-      "tool_name": "工具名称",
+    "tool_calls": [{
+      "name": "工具名称",
       "arguments": {
         "参数1": "值1",
         "参数2": "值2"
       }
-    }
+    }]
   }
   
   注意：
@@ -81,8 +81,8 @@ reflection: |
   输出格式（必须是有效的JSON格式）：
   {
     "think": "重新思考后的内容，说明为什么修改和新的目标",
-    "tool_call": [{
-      "tool_name": "工具名称",
+    "tool_calls": [{
+      "name": "工具名称",
       "arguments": {
         "参数1": "值1",
         "参数2": "值2"
