@@ -1,6 +1,7 @@
 import time
 import yaml
 import logging
+import json_repair
 from config import Config
 from rag.knowledge_base import KnowledgeBase
 from ctf_tool.base_tool import BaseTool
@@ -181,74 +182,100 @@ class SolveAgent:
                 return False, None
             else:
                 print("无效选项，请重新选择")
+    
+    def next_instruction(self) -> Tuple[str, Dict]:
+        """
+        生成下一步执行命令 - 一次性返回思考和工具调用
+        :return: (思考内容, 工具调用参数)
+        """
+        # 获取记忆摘要
+        history_summary = self.memory.get_summary(self.problem)
+        
+        # 获取相关知识库内容
+        relevant_knowledge = self.knowledge_base.get_relevant_knowledge(self.problem)
+        
+        # 使用Jinja2渲染提示，要求LLM一次性返回思考和工具调用
+        template = self.env.from_string(self.prompt.get("think_next", ""))
+        
+        # 渲染提示
+        think_prompt = template.render(
+            question=self.problem,
+            history_summary=history_summary,
+            relevant_knowledge=relevant_knowledge,
+            tools=self.function_configs
+        )
+        
+        # 调用LLM，要求一次性返回思考和工具调用
+        response = self.solve_llm.text_completion(
+            prompt=think_prompt,
+            json_check=True,  # 要求返回JSON格式
+        )
+        
+        # 解析LLM返回的思考内容和工具调用
+        result = json_repair.loads(response.choices[0].message.content)
+        
+        think_content = result.get("think", "未返回思考内容")
+        logger.info(f"思考内容: {think_content}")
+        tool_arg = ToolUtils.parse_tool_response(response)
+        
+        return think_content, tool_arg
 
     def reflection(self, think: str, feedback: str) -> Tuple[str, Dict]:
         """
-        根据用户反馈重新生成思考内容，返回的是“LLM 重新思考后的 next_step”，后续仍需让用户再次确认。
+        根据用户反馈重新生成思考内容和工具调用
         """
         # 获取记忆摘要
         history_summary = self.memory.get_summary(self.problem)
+        
+        # 获取相关知识库内容
+        relevant_knowledge = self.knowledge_base.get_relevant_knowledge(self.problem)
+        
         # 使用Jinja2渲染提示
-        template = self.env.from_string(self.prompt.get("think_next", ""))
-        think_prompt = template.render(
+        template = self.env.from_string(self.prompt.get("reflection", ""))
+        
+        # 渲染提示
+        reflection_prompt = template.render(
             question=self.problem,
             history_summary=history_summary,
+            relevant_knowledge=relevant_knowledge,
             original_purpose=think,
             feedback=feedback,
+            tools=self.function_configs
         )
-        # 调用LLM思考下一步
-        response = self.solve_llm.text_completion(prompt=think_prompt, json_check=False)
-        think_content = response.choices[0].message.content
-        logger.info(f"执行目的: {think_content}")
-        category_tools = self.tool.recommend_tools(think_content, 3)
-
-        tool_arg = self.tool_general(history_summary, category_tools)
-        return think_content, tool_arg
-
-    def next_instruction(self) -> Tuple[str, Dict]:
-        """
-        生成下一步执行命令
-        :return: 下一步命令字典和工具类别
-        """
-        # 获取记忆摘要
-        history_summary = self.memory.get_summary(self.problem)
-        # 使用Jinja2渲染提示
-        template = self.env.from_string(self.prompt.get("think_next", ""))
-        think_prompt = template.render(
-            question=self.problem, history_summary=history_summary
-        )
-        relevant_knowledge = self.knowledge_base.get_relevant_knowledge(think_prompt)
-        think_prompt += f"\n相关知识库内容仅供参考:\n{relevant_knowledge}\n"
-        # 调用LLM思考下一步
-        response = self.solve_llm.text_completion(prompt=think_prompt, json_check=False)
-        think_content = response.choices[0].message.content
-        logger.info(f"执行目的: {think_content}")
-        tools = self.tool.recommend_tools(think_content, 3)
-
-        tool_arg = self.tool_general(history_summary, think_content, tools)
-        return think_content, tool_arg
-
-    def tool_general(
-        self, history_summary: str, think: str, tool_configs: List[Dict] = None
-    ) -> Tuple[str, Dict]:
-        """
-        生成工具调用
-        :param think: 思考内容
-        :param tool_configs: 可用的工具配置列表，如果为None则使用所有工具
-        :return: 思考内容和工具调用参数
-        """
-        if tool_configs is None:
-            tool_configs = self.function_configs
-        # 调用LLM生成下一步动作
-        template = self.env.from_string(self.prompt.get("general_next", ""))
-        step_prompt = template.render(
-            question=self.problem,
-            solution_plan=think,
-            history_summary=history_summary,
-            tools=tool_configs,
-        )
+        
+        # 调用LLM，一次性返回思考和工具调用
         response = self.solve_llm.text_completion(
-            prompt=step_prompt,
-            json_check=True,
+            prompt=reflection_prompt,
+            json_check=True,  # 要求返回JSON格式
         )
-        return ToolUtils.parse_tool_response(response)
+        
+        # 解析LLM返回的思考内容和工具调用
+        try:
+            import json
+            result = json.loads(response.choices[0].message.content)
+            
+            think_content = result.get("think", "未返回思考内容")
+            tool_call = result.get("tool_call", {})
+            
+            if not tool_call or tool_call.get("tool_name") == "无可用工具":
+                logger.warning("LLM没有选择任何工具")
+                tool_call = {
+                    "tool_name": "无可用工具",
+                    "arguments": {}
+                }
+            
+            logger.info(f"重新思考内容: {think_content}")
+            logger.info(f"重新选择的工具调用: {tool_call}")
+            
+            return think_content, tool_call
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"解析LLM返回的JSON失败: {e}")
+            # 尝试从文本中提取思考和工具信息
+            content = response.choices[0].message.content
+            think_content = "解析错误，使用默认思考"
+            
+            # 尝试从文本中提取工具调用
+            tool_arg = ToolUtils.parse_tool_response(content)
+            
+            return think_content, tool_arg

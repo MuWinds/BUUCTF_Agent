@@ -5,6 +5,7 @@ __pycache__/
 .vscode/
 .attachments/
 logs/
+rag_db/
 
 # C extensions
 *.so

@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import inspect
 import logging
+import json_repair
 import numpy as np
 from config import Config
 from typing import Dict, List, Tuple
@@ -244,18 +245,18 @@ class ToolUtils:
             tool_call: ChatCompletionMessageToolCall = message.tool_calls[0]
             func_name = tool_call.function.name
             try:
-                args = json.loads(tool_call.function.arguments)
+                args = json_repair.loads(tool_call.function.arguments)
             except json.JSONDecodeError as e:
                 args = fix_json_with_llm(tool_call.function.arguments, e)
         else:
             content = message.content.strip()
             try:
-                data = json.loads(content)
+                data = json_repair.loads(content)
             except json.JSONDecodeError as e:
                 logger.warning("无法直接解析JSON，尝试修复")
                 content = fix_json_with_llm(content, e)
                 try:
-                    data = json.loads(content)
+                    data = json_repair.loads(content)
                 except:
                     return {}
             

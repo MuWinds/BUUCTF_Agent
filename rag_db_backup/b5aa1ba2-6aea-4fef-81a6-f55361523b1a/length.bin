@@ -1,1 +1,0 @@
-invalid type: string "JWT令牌验证缺陷\n漏洞原理\nJWT验证不完整导致权限绕过。虽然验证了令牌有效性，但未严格验证令牌主体与操作对象的一致性。\nJWT结构：JWT由Base64Url编码的Header、Payload和Signature组成，格式为Header.Payload.Signature。\nHeader：包含算法（alg）和类型（typ），如{\"alg\": \"HS256\", \"typ\": \"JWT\"}。e
