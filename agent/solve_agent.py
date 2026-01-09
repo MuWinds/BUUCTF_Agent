@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class SolveAgent:
-    def __init__(self, problem: str):
+    def __init__(self, problem: str): 
         self.config = Config.load_config()
         self.solve_llm = LLMRequest("solve_agent")
         self.problem = problem
@@ -73,8 +73,6 @@ class SolveAgent:
     def solve(self) -> str:
         """
         主解题函数 - 采用逐步执行方式
-        :param problem_class: 题目类别（Web/Crypto/Reverse等）
-        :param solution_plan: 解题思路
         :return: 获取的flag
         """
         step_count = 0
@@ -88,46 +86,80 @@ class SolveAgent:
             while next_step is None:
                 next_step = self.next_instruction()
                 if next_step:
-                    think, tool_arg = next_step
+                    think, tool_calls = next_step
                     break
                 print("生成执行内容失败，10秒后重试...")
                 time.sleep(10)
 
-            # 提取工具名称和参数
-            tool_name = tool_arg.get("tool_name")
-            arguments: dict = tool_arg.get("arguments", {})
-            output = ""
             # 手动模式：需要用户批准命令
             if not self.auto_mode:
                 approved, next_step = self.manual_approval_step(next_step)
-                think, tool_arg = next_step
+                think, tool_calls = next_step
                 if not approved:
                     print("用户终止解题")
                     return "解题终止"
-                # 更新参数
-                tool_name = tool_arg.get("tool_name")
-                arguments = tool_arg.get("arguments", {})
 
-            if tool_name in self.tools:
-                try:
-                    tool = self.tools[tool_name]
-                    # 统一调用方式
-                    result = tool.execute(tool_name, arguments)
-                    output = (
-                        ToolUtils.output_summary(tool_name, tool_arg, think, result)
-                        if result
-                        else "注意！无输出内容！"
-                    )  # 获取输出内容
-                except Exception as e:
-                    output = f"工具执行出错: {str(e)}"
-            else:
-                output = f"错误: 未找到工具 '{tool_name}'"
+            # 执行所有工具调用
+            all_tool_results = []
+            combined_raw_output = ""
+            
+            for i, tool_call in enumerate(tool_calls):
+                print(f"\n执行工具 {i+1}/{len(tool_calls)}: {tool_call.get('tool_name')}")
+                
+                tool_name = tool_call.get("tool_name")
+                arguments: dict = tool_call.get("arguments", {})
+                
+                if tool_name in self.tools:
+                    try:
+                        tool = self.tools[tool_name]
+                        result = tool.execute(tool_name, arguments)
+                        if not result:
+                            result = "注意！无输出内容！"
+                        
+                        # 保存每个工具的结果
+                        tool_result = {
+                            "tool_name": tool_name,
+                            "arguments": arguments,
+                            "raw_output": result
+                        }
+                        all_tool_results.append(tool_result)
+                        
+                        # 构建原始输出字符串
+                        combined_raw_output += str(result) + "\n---\n"
+                        
+                    except Exception as e:
+                        error_msg = f"工具执行出错: {str(e)}"
+                        tool_result = {
+                            "tool_name": tool_name,
+                            "arguments": arguments,
+                            "raw_output": error_msg
+                        }
+                        all_tool_results.append(tool_result)
+                        combined_raw_output += error_msg + "\n---\n"
+                else:
+                    error_msg = f"错误: 未找到工具 '{tool_name}'"
+                    tool_result = {
+                        "tool_name": tool_name,
+                        "arguments": arguments,
+                        "raw_output": error_msg
+                    }
+                    all_tool_results.append(tool_result)
+                    combined_raw_output += error_msg + "\n---\n"
+                
+                logger.info(f"工具 {tool_name} 原始输出:\n{all_tool_results[-1]['raw_output'][:500]}...")
 
-            logger.info(f"命令输出:\n{output}")
+            # 使用通用output_summary函数
+            output_summary = ToolUtils.output_summary(
+                tool_results=all_tool_results,
+                think=think,
+                tool_output=combined_raw_output
+            )
 
-            # 使用LLM分析输出
+            logger.info(f"工具输出摘要（共{len(all_tool_results)}个工具）:\n{output_summary}")
+
+            # 使用LLM分析所有工具的输出
             analysis_result: Dict = self.analyzer.analyze_step_output(
-                self.memory, step_count, output, think
+                self.memory, step_count, output_summary, think
             )
 
             # 检查LLM是否在输出中发现了flag
@@ -143,13 +175,15 @@ class SolveAgent:
                 else:
                     logger.info("用户确认flag不正确，继续解题")
 
-            # 添加执行历史到记忆系统（包含工具名称和类别）
+            # 添加执行历史到记忆系统
             self.memory.add_step(
                 {
                     "step": step_count,
                     "think": think,
-                    "tool_args": arguments,
-                    "output": output,
+                    "tool_args": tool_calls[0].get("arguments", {}) if tool_calls else {},  # 向后兼容
+                    "tool_calls": tool_calls,  # 保存所有工具调用
+                    "output": output_summary,  # 使用汇总后的输出
+                    "raw_outputs": combined_raw_output,  # 保存原始输出用于调试
                     "analysis": analysis_result,
                 }
             )
@@ -160,19 +194,27 @@ class SolveAgent:
                 return "未找到flag：提前终止"
 
     def manual_approval_step(
-        self, next_step: Tuple[str, Dict]
-    ) -> Tuple[bool, Tuple[str, Dict]]:
+        self, next_step: Tuple[str, List[Dict]]
+    ) -> Tuple[bool, Tuple[str, List[Dict]]]:
         """手动模式：让用户无限次反馈/重思，直到 ta 主动选 1 或 3"""
         while True:
-            think, _ = next_step
+            think, tool_calls = next_step
 
-            print("1. 批准并执行")
+            # 显示所有计划调用的工具
+            print(f"\n计划调用 {len(tool_calls)} 个工具:")
+            for i, tool_call in enumerate(tool_calls):
+                print(
+                    f"{i+1}. {tool_call.get('tool_name')}: {tool_call.get('arguments')}"
+                )
+            print()
+
+            print("1. 批准并执行所有工具")
             print("2. 提供反馈并重新思考")
             print("3. 终止解题")
             choice = input("请输入选项编号: ").strip()
 
             if choice == "1":
-                return True, next_step
+                return True, (think, tool_calls)
             elif choice == "2":
                 feedback = input("请提供改进建议: ").strip()
                 next_step = self.reflection(think, feedback)
@@ -182,57 +224,58 @@ class SolveAgent:
                 return False, None
             else:
                 print("无效选项，请重新选择")
-    
-    def next_instruction(self) -> Tuple[str, Dict]:
+
+    def next_instruction(self) -> Tuple[str, List[Dict]]:
         """
-        生成下一步执行命令 - 一次性返回思考和工具调用
-        :return: (思考内容, 工具调用参数)
+        生成下一步执行命令 - 返回思考和多个工具调用
+        :return: (思考内容, 工具调用列表)
         """
         # 获取记忆摘要
         history_summary = self.memory.get_summary(self.problem)
-        
+
         # 获取相关知识库内容
         relevant_knowledge = self.knowledge_base.get_relevant_knowledge(self.problem)
-        
-        # 使用Jinja2渲染提示，要求LLM一次性返回思考和工具调用
+
+        # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("think_next", ""))
-        
+
         # 渲染提示
         think_prompt = template.render(
             question=self.problem,
             history_summary=history_summary,
             relevant_knowledge=relevant_knowledge,
-            tools=self.function_configs
+            tools=self.function_configs,
         )
-        
-        # 调用LLM，要求一次性返回思考和工具调用
+
+        # 调用LLM，要求返回思考和工具调用列表
         response = self.solve_llm.text_completion(
             prompt=think_prompt,
             json_check=True,  # 要求返回JSON格式
         )
-        
-        # 解析LLM返回的思考内容和工具调用
+
+        # 解析LLM返回的思考内容和工具调用列表
         result = json_repair.loads(response.choices[0].message.content)
-        
+
         think_content = result.get("think", "未返回思考内容")
         logger.info(f"思考内容: {think_content}")
-        tool_arg = ToolUtils.parse_tool_response(response)
-        
-        return think_content, tool_arg
 
-    def reflection(self, think: str, feedback: str) -> Tuple[str, Dict]:
+        # 解析工具调用列表
+        tool_calls = ToolUtils.parse_tool_response(response)
+        return think_content, tool_calls
+
+    def reflection(self, think: str, feedback: str) -> Tuple[str, List[Dict]]:
         """
         根据用户反馈重新生成思考内容和工具调用
         """
         # 获取记忆摘要
         history_summary = self.memory.get_summary(self.problem)
-        
+
         # 获取相关知识库内容
         relevant_knowledge = self.knowledge_base.get_relevant_knowledge(self.problem)
-        
+
         # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("reflection", ""))
-        
+
         # 渲染提示
         reflection_prompt = template.render(
             question=self.problem,
@@ -240,42 +283,42 @@ class SolveAgent:
             relevant_knowledge=relevant_knowledge,
             original_purpose=think,
             feedback=feedback,
-            tools=self.function_configs
+            tools=self.function_configs,
         )
-        
-        # 调用LLM，一次性返回思考和工具调用
+
+        # 调用LLM，返回思考和工具调用列表
         response = self.solve_llm.text_completion(
             prompt=reflection_prompt,
-            json_check=True,  # 要求返回JSON格式
+            json_check=True,
         )
-        
-        # 解析LLM返回的思考内容和工具调用
+
+        # 解析LLM返回的思考内容和工具调用列表
         try:
-            import json
-            result = json.loads(response.choices[0].message.content)
-            
+            result = json_repair.loads(response.choices[0].message.content)
+
             think_content = result.get("think", "未返回思考内容")
-            tool_call = result.get("tool_call", {})
-            
-            if not tool_call or tool_call.get("tool_name") == "无可用工具":
+            tool_calls = result.get("tool_calls", [])
+
+            if not tool_calls:
                 logger.warning("LLM没有选择任何工具")
-                tool_call = {
-                    "tool_name": "无可用工具",
-                    "arguments": {}
-                }
-            
+                tool_calls = [{"tool_name": "无可用工具", "arguments": {}}]
+
             logger.info(f"重新思考内容: {think_content}")
-            logger.info(f"重新选择的工具调用: {tool_call}")
-            
-            return think_content, tool_call
-            
-        except json.JSONDecodeError as e:
+            for i, tool_call in enumerate(tool_calls):
+                logger.info(
+                    f"重新选择的工具 {i+1}: {tool_call.get('name', tool_call.get('tool_name'))}"
+                )
+
+            return think_content, tool_calls
+
+        except Exception as e:
             logger.error(f"解析LLM返回的JSON失败: {e}")
             # 尝试从文本中提取思考和工具信息
             content = response.choices[0].message.content
             think_content = "解析错误，使用默认思考"
-            
+
             # 尝试从文本中提取工具调用
             tool_arg = ToolUtils.parse_tool_response(content)
-            
-            return think_content, tool_arg
+            tool_calls = [tool_arg] if tool_arg else []
+
+            return think_content, tool_calls

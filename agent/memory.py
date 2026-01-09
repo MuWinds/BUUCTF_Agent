@@ -46,14 +46,28 @@ class Memory:
             self.compress_memory()
 
     def _extract_key_facts(self, step: Dict) -> None:
-        """从步骤中提取关键事实并存储"""
+        """从步骤中提取关键事实并存储，支持多个工具调用"""
         # 提取关键命令和结果
-        if "content" in step and "output" in step:
-            command = step["content"]
-            output_summary = step["output"][:256] + (
-                "..." if len(step["output"]) > 256 else ""
-            )
-            self.key_facts[f"command"] = f"命令：{command},结果: {output_summary}"
+        if "tool_calls" in step and step["tool_calls"]:
+            # 处理多个工具调用
+            tool_call_summary = []
+            for i, tool_call in enumerate(step["tool_calls"], 1):
+                tool_name = tool_call.get("tool_name", "未知工具")
+                args = tool_call.get("arguments", {})
+                tool_call_summary.append(f"{i}. {tool_name}({args})")
+            
+            self.key_facts[f"tool_calls"] = f"工具调用: {', '.join(tool_call_summary)}"
+        
+        # 处理单个工具调用（向后兼容）
+        elif "tool_args" in step and step["tool_args"]:
+            command = str(step["tool_args"])
+            self.key_facts[f"command"] = f"命令: {command}"
+
+        # 提取输出摘要
+        if "output" in step:
+            output = step["output"]
+            output_summary = output[:256] + ("..." if len(output) > 256 else "")
+            self.key_facts[f"output_summary"] = f"输出摘要: {output_summary}"
 
         # 提取分析结论
         if "analysis" in step and "analysis" in step["analysis"]:
