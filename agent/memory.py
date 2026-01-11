@@ -1,7 +1,7 @@
-import litellm
 import json
 import json_repair
 import logging
+from utils.llm_request import LLMRequest
 from config import Config
 from typing import List, Dict
 from utils.text import optimize_text
@@ -20,7 +20,7 @@ class Memory:
         :param compression_threshold: 触发压缩的步骤阈值
         """
         self.config = Config.load_config()
-        self.llm_config = self.config["llm"]["solve_agent"]
+        self.solve_llm = LLMRequest("solve_agent")
         self.max_steps = max_steps
         self.compression_threshold = compression_threshold
         self.history: List[Dict] = []  # 详细历史记录
@@ -38,7 +38,11 @@ class Memory:
         # 记录失败尝试
         if "analysis" in step and "success" in step["analysis"]:
             if not step["analysis"]["success"]:
-                command = step.get("content", "")
+                if "tool_calls" in step and step["tool_calls"]:
+                    # 将工具调用列表转为字符串作为键
+                    command = str([(t.get('tool_name'), t.get('arguments')) for t in step["tool_calls"]])
+                else:
+                    command = str(step.get("tool_args", ""))
                 self.failed_attempts[command] = self.failed_attempts.get(command, 0) + 1
 
         # 检查是否需要压缩记忆
@@ -115,15 +119,11 @@ class Memory:
 
         try:
             # 调用LLM生成结构化记忆
-            litellm.enable_json_schema_validation = True
-            response = litellm.completion(
-                model=self.llm_config["model"],
-                api_key=self.llm_config["api_key"],
-                api_base=self.llm_config["api_base"],
-                messages=[{"role": "user", "content": optimize_text(prompt)}],
-                max_tokens=1024,
+            response = self.solve_llm.text_completion(
+                prompt=optimize_text(prompt),
+                json_check=True,
+                max_tokens=1024
             )
-
             # 解析并存储压缩记忆
             json_str = response.choices[0].message.content.strip()
             compressed_data = json_repair.loads(json_str)

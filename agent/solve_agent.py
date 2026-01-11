@@ -146,7 +146,7 @@ class SolveAgent:
                     all_tool_results.append(tool_result)
                     combined_raw_output += error_msg + "\n---\n"
                 
-                logger.info(f"工具 {tool_name} 原始输出:\n{all_tool_results[-1]['raw_output'][:500]}...")
+                logger.info(f"工具 {tool_name} 原始输出:\n{all_tool_results[-1]['raw_output']}")
 
             # 使用通用output_summary函数
             output_summary = ToolUtils.output_summary(
@@ -231,7 +231,7 @@ class SolveAgent:
         :return: (思考内容, 工具调用列表)
         """
         # 获取记忆摘要
-        history_summary = self.memory.get_summary(self.problem)
+        history_summary = self.memory.get_summary()
 
         # 获取相关知识库内容
         relevant_knowledge = self.knowledge_base.get_relevant_knowledge(self.problem)
@@ -268,7 +268,7 @@ class SolveAgent:
         根据用户反馈重新生成思考内容和工具调用
         """
         # 获取记忆摘要
-        history_summary = self.memory.get_summary(self.problem)
+        history_summary = self.memory.get_summary()
 
         # 获取相关知识库内容
         relevant_knowledge = self.knowledge_base.get_relevant_knowledge(self.problem)
