@@ -49,6 +49,21 @@ class Memory:
         if len(self.history) >= self.compression_threshold:
             self.compress_memory()
 
+    def add_planned_step(self, step_num: int, think: str, tool_calls: List[Dict]) -> None:
+        self.history.append({
+            "step": step_num,
+            "think": think,
+            "tool_calls": tool_calls,
+            "status": "planned"
+        })
+
+    def update_step(self, step_num: int, fields: Dict) -> None:
+        for i in range(len(self.history) - 1, -1, -1):
+            s = self.history[i]
+            if s.get("step") == step_num:
+                s.update(fields)
+                break
+
     def _extract_key_facts(self, step: Dict) -> None:
         """从步骤中提取关键事实并存储，支持多个工具调用"""
         # 提取关键命令和结果
@@ -110,7 +125,16 @@ class Memory:
         for i, step in enumerate(self.history[-self.compression_threshold :]):
             prompt += f"\n步骤 {i+1}:\n"
             prompt += f"- 目的: {step.get('think', '未指定')}\n"
-            prompt += f"- 命令: {step['tool_args']}\n"
+            if step.get('tool_calls'):
+                # 优先使用多工具调用的摘要
+                tc = []
+                for t in step.get('tool_calls', []):
+                    name = t.get('tool_name', '未知工具')
+                    args = t.get('arguments', {})
+                    tc.append(f"{name}({args})")
+                prompt += f"- 命令: {', '.join(tc)}\n"
+            else:
+                prompt += f"- 命令: {step.get('tool_args', {})}\n"
 
             # 添加分析结果（如果有）
             if "analysis" in step:
@@ -202,7 +226,15 @@ class Memory:
                 step_num = len(self.history) - i
                 summary += f"步骤 {step_num}:\n"
                 summary += f"- 目的: {step.get('think', '未指定')}\n"
-                summary += f"- 命令: {step['tool_args']}\n"
+                if step.get('tool_calls'):
+                    tc = []
+                    for t in step.get('tool_calls', []):
+                        name = t.get('tool_name', '未知工具')
+                        args = t.get('arguments', {})
+                        tc.append(f"{name}({args})")
+                    summary += f"- 命令: {', '.join(tc)}\n"
+                else:
+                    summary += f"- 命令: {step.get('tool_args', {})}\n"
 
                 # 显示输出摘要和分析
                 if "output" in step:

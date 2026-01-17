@@ -1,5 +1,6 @@
 from config import Config
 from agent.workflow import Workflow
+from utils.user_interface import CommandLineInterface
 from datetime import datetime
 import sys
 import os
@@ -53,9 +54,22 @@ if __name__ == "__main__":
     setup_logging()
     logger = logging.getLogger(__name__)
     config: dict = Config.load_config()
-    print("如题目中含有附件，请放附件文件到项目根目录的attachments文件夹下")
-    input("将题目文本放在Agent根目录下的question.txt回车以结束")
+    
+    # 创建命令行交互接口
+    cli = CommandLineInterface()
+    
+    # 显示附件提示
+    cli.display_message("如题目中含有附件，请放附件文件到项目根目录的attachments文件夹下")
+    
+    # 等待用户确认题目已准备好
+    cli.input_question_ready("将题目文本放在Agent根目录下的question.txt回车以结束")
+    
+    # 读取题目
     question = open("question.txt", "r", encoding="utf-8").read()
     logger.debug(f"题目内容：{question}")
-    result = Workflow(config=config).solve(question)
+    
+    # 创建Workflow实例并传入用户接口
+    workflow = Workflow(config=config, user_interface=cli)
+    result = workflow.solve(question)
+    
     logger.info(f"最终结果:{result}")

@@ -16,7 +16,8 @@ class PythonTool(BaseTool):
     def __init__(self, tool_config: Optional[Dict] = None):
         tool_config = tool_config or {}
         # 在初始化时询问是否要远程执行
-        self.remote = self.ask_remote_execution(tool_config.get("default_mode"))
+        # self.remote = self.ask_remote_execution(tool_config.get("default_mode"))
+        self.remote = Config.get_tool_config("python", {}).get("remote", False)
         if self.remote:
             ssh_config: dict = Config.get_tool_config("ssh_shell")
             self.hostname = ssh_config.get("host")
@@ -25,25 +26,6 @@ class PythonTool(BaseTool):
             self.password = ssh_config.get("password")
             self.ssh_client = None
             self._connect()
-
-    def ask_remote_execution(self, default_mode: Optional[str] = None) -> bool:
-        """询问用户是否要远程执行，在非交互环境下遵循预设。"""
-        env_mode = os.getenv("AGENT_PYTHON_MODE")
-        if env_mode in {"local", "remote"}:
-            return env_mode == "remote"
-
-        if default_mode in {"local", "remote"}:
-            return default_mode == "remote"
-
-        if os.getenv("AGENT_NON_INTERACTIVE") == "1":
-            return False
-
-        print("\n--- Python 执行选项 ---")
-        print("1. 本地执行")
-        print("2. 远程执行")
-        choice = input("请选择 Python 代码的执行方式 (1/2): ").strip()
-
-        return choice == "2"
 
     def execute(self, tool_name: str, arguments: dict) -> str:
         """执行Python代码"""

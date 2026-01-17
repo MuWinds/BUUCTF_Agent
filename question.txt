@@ -1,1 +1,1 @@
-BUU XXE COURSE 1，靶机信息：http://dbab3b47-32e8-4a59-bb8a-67244abb8e37.node5.buuoj.cn:81
+BUU SQL COURSE 2

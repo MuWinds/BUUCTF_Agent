@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BUUCTF Agent</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>BUUCTF Agent</h1>
+        <div class="chat-container">
+            <div id="chat-messages" class="chat"></div>
+            <div class="composer">
+                <textarea id="composer-text" placeholder="请输入题目内容..."></textarea>
+                <button id="composer-send">发送</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // 生成会话ID
+        const sessionId = 'session_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+        const uiState = { detailsOpen: {}, detailsScroll: {}, chatAtBottom: true, chatScrollTop: 0, userMessageRendered: false, stepVersion: {}, stepRendered: {}, lastWaitingFor: null, resultShown: false, lastResult: null, errorShown: false, lastError: null };
+        
+        let sessionStarted = false;
+        document.getElementById('composer-send').addEventListener('click', () => {
+            const question = document.getElementById('composer-text').value;
+            if (!question) { alert('请输入题目内容'); return; }
+            if (sessionStarted) { alert('会话已启动'); return; }
+            fetch('/api/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question, session_id: sessionId })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    sessionStarted = true;
+                    addUserMessage(question);
+                    startPolling(question);
+                    document.getElementById('composer-text').disabled = true;
+                } else {
+                    alert('启动失败: ' + data.error);
+                }
+            })
+            .catch(error => { console.error('Error:', error); alert('启动失败: ' + error.message); });
+        });
+        
+        function addUserMessage(text) {
+            const messagesDiv = document.getElementById('chat-messages');
+            const msg = document.createElement('div');
+            msg.className = 'chat-message user';
+            msg.innerHTML = `<div class="bubble"><div class="content">${escapeHtml(text)}</div></div>`;
+            messagesDiv.appendChild(msg);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            uiState.userMessageRendered = true;
+        }
+
+        function computeStepVersion(step) {
+            const v = {
+                status: step.status,
+                output: step.output || '',
+                raw_outputs: step.raw_outputs || '',
+                analysis: step.analysis || {}
+            };
+            return JSON.stringify(v);
+        }
+
+        function stepBubbleContent(step) {
+            const messagesDiv = document.getElementById('chat-messages');
+            const toolCallsList = Array.isArray(step.tool_calls) ? step.tool_calls.map((tc, i) => {
+                const name = tc.tool_name || (tc.name || '');
+                const args = tc.arguments || {};
+                return `<li><strong>${i+1}. ${escapeHtml(String(name))}</strong> ${escapeHtml(JSON.stringify(args))}</li>`;
+            }).join('') : '';
+            const outputBlock = step.output ? `<pre class="block">${escapeHtml(String(step.output))}</pre>` : '';
+            const thinkOpen = uiState.detailsOpen[`${step.step}:think`] ? ' open' : '';
+            const toolsOpen = uiState.detailsOpen[`${step.step}:tools`] ? ' open' : '';
+            const analysisOpen = uiState.detailsOpen[`${step.step}:analysis`] ? ' open' : '';
+            const rawOpen = uiState.detailsOpen[`${step.step}:raw`] ? ' open' : '';
+            const rawBlock = step.raw_outputs ? `<details class="collapsible" data-step="${step.step}" data-section="raw"${rawOpen}><summary>原始输出</summary><pre class="block">${escapeHtml(String(step.raw_outputs))}</pre></details>` : '';
+            const thinkBlock = step.think ? `<details class="collapsible" data-step="${step.step}" data-section="think"${thinkOpen}><summary>思考过程</summary><pre class="block">${escapeHtml(String(step.think))}</pre></details>` : '';
+            const analysisBlock = step.analysis ? `<details class="collapsible" data-step="${step.step}" data-section="analysis"${analysisOpen}><summary>分析结论</summary><pre class="block">${escapeHtml(JSON.stringify(step.analysis, null, 2))}</pre></details>` : '';
+            const toolsBlock = toolCallsList ? `<details class="collapsible" data-step="${step.step}" data-section="tools"${toolsOpen}><summary>计划的工具调用</summary><ul class="tool-list">${toolCallsList}</ul></details>` : '';
+            return `
+                <div class="bubble">
+                    <div class="header">第 ${step.step} 步</div>
+                    ${thinkBlock}
+                    ${toolsBlock}
+                    ${outputBlock}
+                    ${analysisBlock}
+                    ${rawBlock}
+                </div>
+            `;
+        }
+
+        function addAssistantStep(step) {
+            const messagesDiv = document.getElementById('chat-messages');
+            const msg = document.createElement('div');
+            msg.className = 'chat-message assistant';
+            msg.id = `step-${step.step}`;
+            msg.setAttribute('data-step', String(step.step));
+            msg.innerHTML = stepBubbleContent(step);
+            messagesDiv.appendChild(msg);
+            uiState.stepRendered[step.step] = true;
+            uiState.stepVersion[step.step] = computeStepVersion(step);
+        }
+
+        function captureStepState(stepNum) {
+            const container = document.getElementById(`step-${stepNum}`);
+            if (!container) return;
+            const details = container.querySelectorAll('details.collapsible');
+            details.forEach(d => {
+                const section = d.getAttribute('data-section') || 'unknown';
+                const key = `${stepNum}:${section}`;
+                uiState.detailsOpen[key] = d.open;
+                const block = d.querySelector('.block');
+                if (block) uiState.detailsScroll[key] = block.scrollTop;
+            });
+        }
+
+        function restoreStepState(stepNum) {
+            const container = document.getElementById(`step-${stepNum}`);
+            if (!container) return;
+            const details = container.querySelectorAll('details.collapsible');
+            details.forEach(d => {
+                const section = d.getAttribute('data-section') || 'unknown';
+                const key = `${stepNum}:${section}`;
+                if (uiState.detailsOpen[key]) d.setAttribute('open', '');
+                const block = d.querySelector('.block');
+                if (block && uiState.detailsScroll.hasOwnProperty(key)) block.scrollTop = uiState.detailsScroll[key];
+            });
+        }
+
+        function updateAssistantStep(step) {
+            captureStepState(step.step);
+            const container = document.getElementById(`step-${step.step}`);
+            if (!container) { addAssistantStep(step); return; }
+            container.innerHTML = stepBubbleContent(step);
+            restoreStepState(step.step);
+            uiState.stepVersion[step.step] = computeStepVersion(step);
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function captureOpenStates() {
+            const details = document.querySelectorAll('#chat-messages details.collapsible');
+            details.forEach(d => {
+                const step = d.getAttribute('data-step') || 'na';
+                const section = d.getAttribute('data-section') || 'unknown';
+                const key = `${step}:${section}`;
+                uiState.detailsOpen[key] = d.open;
+                const block = d.querySelector('.block');
+                if (block) {
+                    uiState.detailsScroll[key] = block.scrollTop;
+                }
+            });
+        }
+
+        function captureChatScrollState() {
+            const chat = document.getElementById('chat-messages');
+            const threshold = 50;
+            uiState.chatAtBottom = (chat.scrollHeight - chat.scrollTop - chat.clientHeight) < threshold;
+            uiState.chatScrollTop = chat.scrollTop;
+        }
+
+        function restoreDetailScrollStates() {
+            const details = document.querySelectorAll('#chat-messages details.collapsible');
+            details.forEach(d => {
+                const step = d.getAttribute('data-step') || 'na';
+                const section = d.getAttribute('data-section') || 'unknown';
+                const key = `${step}:${section}`;
+                if (uiState.detailsOpen[key]) d.setAttribute('open', '');
+                const block = d.querySelector('.block');
+                if (block && uiState.detailsScroll.hasOwnProperty(key)) {
+                    block.scrollTop = uiState.detailsScroll[key];
+                }
+            });
+        }
+
+        function restoreChatScrollState() {
+            const chat = document.getElementById('chat-messages');
+            if (uiState.chatAtBottom) {
+                chat.scrollTop = chat.scrollHeight;
+            } else {
+                chat.scrollTop = Math.min(uiState.chatScrollTop, chat.scrollHeight - chat.clientHeight);
+            }
+        }
+
+        function startPolling(question) {
+            setInterval(() => {
+                fetch(`/api/history/${sessionId}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        captureChatScrollState();
+                        if (!uiState.userMessageRendered) {
+                            addUserMessage(data.question || question);
+                            uiState.userMessageRendered = true;
+                        }
+                        (data.history || []).forEach(step => {
+                            const ver = computeStepVersion(step);
+                            if (!uiState.stepRendered[step.step]) {
+                                addAssistantStep(step);
+                            } else if (uiState.stepVersion[step.step] !== ver) {
+                                updateAssistantStep(step);
+                            }
+                        });
+                        handleSessionStatus(data);
+                        restoreChatScrollState();
+                    })
+                    .catch(error => {
+                        console.error('Error fetching history:', error);
+                    });
+            }, 1000); // 每秒轮询一次
+        }
+        
+        // 处理会话状态
+        function handleSessionStatus(data) {
+            const chat = document.getElementById('chat-messages');
+            if (uiState.lastWaitingFor !== data.waiting_for) {
+                uiState.lastWaitingFor = data.waiting_for;
+                switch (data.waiting_for) {
+                    case 'flag_confirm':
+                        showFlagConfirmChat(data.flag_candidate);
+                        break;
+                    case 'mode_select':
+                        showModeSelectChat();
+                        break;
+                    case 'manual_approval':
+                    case 'manual_approval_step':
+                        {
+                            const sig = JSON.stringify({think: data.think || '', tool_calls: data.tool_calls || []});
+                            if (!uiState.lastApprovalSig || uiState.lastApprovalSig !== sig) {
+                                showManualApprovalChat(data.think, data.tool_calls);
+                                uiState.lastApprovalSig = sig;
+                            }
+                        }
+                        break;
+                }
+            }
+            if (data.waiting_for === 'manual_approval' || data.waiting_for === 'manual_approval_step') {
+                const sig2 = JSON.stringify({think: data.think || '', tool_calls: data.tool_calls || []});
+                if (!uiState.lastApprovalSig || uiState.lastApprovalSig !== sig2) {
+                    showManualApprovalChat(data.think, data.tool_calls);
+                    uiState.lastApprovalSig = sig2;
+                }
+            }
+            if (data.result && (!uiState.resultShown || uiState.lastResult !== data.result)) {
+                showResultChat(data.result);
+                uiState.resultShown = true;
+                uiState.lastResult = data.result;
+            }
+            if (data.error && (!uiState.errorShown || uiState.lastError !== data.error)) {
+                showErrorChat(data.error);
+                uiState.errorShown = true;
+                uiState.lastError = data.error;
+            }
+        }
+        
+        // 显示flag确认界面
+        function appendAssistantBubble(inner) {
+            const chat = document.getElementById('chat-messages');
+            const msg = document.createElement('div');
+            msg.className = 'chat-message assistant';
+            msg.innerHTML = `<div class="bubble">${inner}</div>`;
+            chat.appendChild(msg);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function appendOrUpdateAssistantBubble(id, inner) {
+            const chat = document.getElementById('chat-messages');
+            let msg = document.getElementById(id);
+            if (!msg) {
+                msg = document.createElement('div');
+                msg.className = 'chat-message assistant';
+                msg.id = id;
+                msg.innerHTML = `<div class="bubble">${inner}</div>`;
+                chat.appendChild(msg);
+            } else {
+                msg.innerHTML = `<div class="bubble">${inner}</div>`;
+            }
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function showFlagConfirmChat(flag_candidate) {
+            appendAssistantBubble(`
+                <div class="flag-confirm">
+                    <div class="header">发现Flag</div>
+                    <p>候选Flag: <strong>${escapeHtml(flag_candidate)}</strong></p>
+                    <div class="control-group">
+                        <button onclick="confirmFlag(true)">确认正确</button>
+                        <button class="secondary" onclick="confirmFlag(false)">确认错误</button>
+                    </div>
+                </div>
+            `);
+        }
+        
+        // 显示模式选择界面
+        function showModeSelectChat() {
+            appendAssistantBubble(`
+                <div class="mode-select">
+                    <div class="header">选择运行模式</div>
+                    <div class="control-group">
+                        <button onclick="selectMode(true)">自动模式</button>
+                        <button class="secondary" onclick="selectMode(false)">手动模式</button>
+                    </div>
+                </div>
+            `);
+        }
+        
+        // 显示手动批准界面
+        function showManualApprovalChat(think, tool_calls) {
+            let toolCallsHtml = '';
+            if (tool_calls && Array.isArray(tool_calls)) {
+                toolCallsHtml = '<ul class="tool-list">';
+                tool_calls.forEach((tool_call, index) => {
+                    const toolName = tool_call.tool_name || tool_call.get('tool_name');
+                    const arguments = JSON.stringify(tool_call.arguments || tool_call.get('arguments'));
+                    toolCallsHtml += `<li><strong>${index+1}. ${escapeHtml(toolName)}</strong> ${escapeHtml(arguments)}</li>`;
+                });
+                toolCallsHtml += '</ul>';
+            } else {
+                toolCallsHtml = `<p>${escapeHtml(JSON.stringify(tool_calls))}</p>`;
+            }
+            appendOrUpdateAssistantBubble('approval-request', `
+                <div class="approval-request">
+                    <div class="header">手动批准</div>
+                    <details class="collapsible" data-step="approval" data-section="approval-think"${uiState.detailsOpen['approval:approval-think'] ? ' open' : ''}><summary>思考过程</summary><pre class="block">${escapeHtml(think)}</pre></details>
+                    ${toolCallsHtml}
+                    <div class="control-group">
+                        <button onclick="approveExecution(true, '')">批准执行</button>
+                        <button class="secondary" onclick="document.getElementById('feedback').style.display='block'">提供反馈</button>
+                        <button class="secondary" onclick="approveExecution(false, '')">拒绝执行</button>
+                    </div>
+                    <div id="feedback" style="display:none; margin-top: 8px;">
+                        <textarea id="feedback-text" rows="3" style="width: 100%; margin-bottom: 10px;"></textarea>
+                        <button onclick="submitFeedbackChat()">提交反馈</button>
+                    </div>
+                </div>
+            `);
+        }
+        
+        // 显示结果
+        function showResultChat(result) { appendAssistantBubble(`<div class="result"><div class="header">解题结果</div><p>${escapeHtml(result)}</p></div>`); }
+        
+        // 显示错误
+        function showErrorChat(error) { appendAssistantBubble(`<div class="error"><div class="header">错误</div><p>${escapeHtml(error)}</p></div>`); }
+        
+        function submitFeedbackChat() {
+            const t = document.getElementById('feedback-text');
+            const feedback = t ? t.value : '';
+            if (feedback) { approveExecution(false, feedback); }
+        }
+        
+        // 确认flag
+        function confirmFlag(confirm) {
+            fetch('/api/flag_confirm', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    confirm: confirm
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('flag确认已处理');
+                    document.getElementById('flag-confirm').remove();
+                }
+            })
+            .catch(error => {
+                console.error('Error confirming flag:', error);
+            });
+        }
+        
+        // 选择模式
+        function selectMode(autoMode) {
+            fetch('/api/mode_select', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    auto_mode: autoMode
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('模式选择已处理');
+                    document.getElementById('mode-select').remove();
+                }
+            })
+            .catch(error => {
+                console.error('Error selecting mode:', error);
+            });
+        }
+        
+        // 批准执行
+        function approveExecution(approve, feedback) {
+            fetch('/api/approval', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    session_id: sessionId,
+                    approve: approve,
+                    feedback: feedback
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('批准已处理');
+                    document.getElementById('approval-request').remove();
+                }
+            })
+            .catch(error => {
+                console.error('Error approving execution:', error);
+            });
+        }
+    </script>
+</body>
+</html>

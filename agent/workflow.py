@@ -4,27 +4,29 @@ import yaml
 import os
 from agent.solve_agent import SolveAgent
 from utils.text import optimize_text
+from utils.user_interface import UserInterface, CommandLineInterface
 
 logger = logging.getLogger(__name__)
 
 
 class Workflow:
-    def __init__(self, config: dict):
+    def __init__(self, config: dict, user_interface: UserInterface = None):
         self.config = config
         self.processor_llm: dict = self.config["llm"]["pre_processor"]
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
+        self.user_interface = user_interface or CommandLineInterface()
         if self.config is None:
             raise ValueError("配置文件不存在")
 
     def solve(self, problem: str) -> str:
         problem = self.summary_problem(problem)
 
-        # 创建SolveAgent实例并设置flag确认回调
-        agent = SolveAgent(problem)
-        agent.confirm_flag_callback = self.confirm_flag
+        # 创建SolveAgent实例并设置flag确认回调和用户接口
+        self.agent = SolveAgent(problem, user_interface=self.user_interface)
+        self.agent.confirm_flag_callback = self.confirm_flag
 
         # 将分类和解决思路传递给SolveAgent
-        result = agent.solve()
+        result = self.agent.solve()
 
         return result
 
@@ -34,17 +36,7 @@ class Workflow:
         :param flag_candidate: 候选flag
         :return: 用户确认结果
         """
-        print(f"\n发现flag：\n{flag_candidate}")
-        print("请确认这个flag是否正确？")
-
-        while True:
-            response = input("输入 'y' 确认正确，输入 'n' 表示不正确: ").strip().lower()
-            if response == "y":
-                return True
-            elif response == "n":
-                return False
-            else:
-                print("无效输入，请输入 'y' 或 'n'")
+        return self.user_interface.confirm_flag(flag_candidate)
 
     def summary_problem(self, problem: str) -> str:
         """

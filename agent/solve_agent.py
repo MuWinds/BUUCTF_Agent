@@ -11,15 +11,17 @@ from agent.memory import Memory
 from utils.llm_request import LLMRequest
 from jinja2 import Environment, FileSystemLoader
 from utils.tools import ToolUtils
+from utils.user_interface import UserInterface, CommandLineInterface
 
 logger = logging.getLogger(__name__)
 
 
 class SolveAgent:
-    def __init__(self, problem: str): 
+    def __init__(self, problem: str, user_interface: UserInterface = None): 
         self.config = Config.load_config()
         self.solve_llm = LLMRequest("solve_agent")
         self.problem = problem
+        self.user_interface = user_interface or CommandLineInterface()
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
         self.knowledge_base = KnowledgeBase()  # 在此处初始化知识库
         if self.config is None:
@@ -46,7 +48,7 @@ class SolveAgent:
         self.tools, self.function_configs = self.tool.load_tools()
 
         # 添加模式设置
-        self._select_mode()
+        self.auto_mode = self.user_interface.select_mode()
 
         # 添加flag确认回调函数
         self.confirm_flag_callback = None  # 将由Workflow设置
@@ -79,7 +81,7 @@ class SolveAgent:
 
         while True:
             step_count += 1
-            print(f"\n正在思考第 {step_count} 步...")
+            self.user_interface.display_message(f"\n正在思考第 {step_count} 步...")
 
             # 生成下一步执行命令
             next_step = None
@@ -88,23 +90,24 @@ class SolveAgent:
                 if next_step:
                     think, tool_calls = next_step
                     break
-                print("生成执行内容失败，10秒后重试...")
+                self.user_interface.display_message("生成执行内容失败，10秒后重试...")
                 time.sleep(10)
 
-            # 手动模式：需要用户批准命令
             if not self.auto_mode:
                 approved, next_step = self.manual_approval_step(next_step)
                 think, tool_calls = next_step
                 if not approved:
-                    print("用户终止解题")
+                    self.user_interface.display_message("用户终止解题")
                     return "解题终止"
+
+            self.memory.add_planned_step(step_count, think, tool_calls)
 
             # 执行所有工具调用
             all_tool_results = []
             combined_raw_output = ""
             
             for i, tool_call in enumerate(tool_calls):
-                print(f"\n执行工具 {i+1}/{len(tool_calls)}: {tool_call.get('tool_name')}")
+                self.user_interface.display_message(f"\n执行工具 {i+1}/{len(tool_calls)}: {tool_call.get('tool_name')}")
                 
                 tool_name = tool_call.get("tool_name")
                 arguments: dict = tool_call.get("arguments", {})
@@ -175,22 +178,17 @@ class SolveAgent:
                 else:
                     logger.info("用户确认flag不正确，继续解题")
 
-            # 添加执行历史到记忆系统
-            self.memory.add_step(
-                {
-                    "step": step_count,
-                    "think": think,
-                    "tool_args": tool_calls[0].get("arguments", {}) if tool_calls else {},  # 向后兼容
-                    "tool_calls": tool_calls,  # 保存所有工具调用
-                    "output": output_summary,  # 使用汇总后的输出
-                    "raw_outputs": combined_raw_output,  # 保存原始输出用于调试
-                    "analysis": analysis_result,
-                }
-            )
+            self.memory.update_step(step_count, {
+                "tool_args": tool_calls[0].get("arguments", {}) if tool_calls else {},
+                "output": output_summary,
+                "raw_outputs": combined_raw_output,
+                "analysis": analysis_result,
+                "status": "executed"
+            })
 
             # 检查是否应该提前终止
             if analysis_result.get("terminate", False):
-                print("LLM建议提前终止解题")
+                self.user_interface.display_message("LLM建议提前终止解题")
                 return "未找到flag：提前终止"
 
     def manual_approval_step(
@@ -199,31 +197,28 @@ class SolveAgent:
         """手动模式：让用户无限次反馈/重思，直到 ta 主动选 1 或 3"""
         while True:
             think, tool_calls = next_step
-
-            # 显示所有计划调用的工具
-            print(f"\n计划调用 {len(tool_calls)} 个工具:")
-            for i, tool_call in enumerate(tool_calls):
-                print(
-                    f"{i+1}. {tool_call.get('tool_name')}: {tool_call.get('arguments')}"
-                )
-            print()
-
-            print("1. 批准并执行所有工具")
-            print("2. 提供反馈并重新思考")
-            print("3. 终止解题")
-            choice = input("请输入选项编号: ").strip()
-
-            if choice == "1":
-                return True, (think, tool_calls)
-            elif choice == "2":
-                feedback = input("请提供改进建议: ").strip()
-                next_step = self.reflection(think, feedback)
-                if not next_step:
-                    print("（思考失败，可继续反馈或选 3 终止）")
-            elif choice == "3":
+            
+            # 使用用户接口获取批准结果
+            result = self.user_interface.manual_approval_step(think, tool_calls)
+            approved, data = result
+            
+            if approved:
+                # 用户批准执行
+                return True, data
+            elif data is None:
+                # 用户选择终止
                 return False, None
             else:
-                print("无效选项，请重新选择")
+                # 用户提供了反馈，需要重新思考
+                if len(data) == 3:
+                    # 包含反馈的情况
+                    _, _, feedback = data
+                    next_step = self.reflection(think, feedback)
+                    if not next_step:
+                        self.user_interface.display_message("（思考失败，可继续反馈或选 3 终止）")
+                else:
+                    # 其他情况
+                    next_step = data
 
     def next_instruction(self) -> Tuple[str, List[Dict]]:
         """
@@ -295,10 +290,9 @@ class SolveAgent:
         # 解析LLM返回的思考内容和工具调用列表
         try:
             result = json_repair.loads(response.choices[0].message.content)
-
             think_content = result.get("think", "未返回思考内容")
-            tool_calls = result.get("tool_calls", [])
-
+            # 使用统一解析逻辑规范化工具调用结构
+            tool_calls = ToolUtils.parse_tool_response(response)
             if not tool_calls:
                 logger.warning("LLM没有选择任何工具")
                 tool_calls = [{"tool_name": "无可用工具", "arguments": {}}]
