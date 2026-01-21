@@ -17,9 +17,9 @@ class PythonTool(BaseTool):
         tool_config = tool_config or {}
         # 在初始化时询问是否要远程执行
         # self.remote = self.ask_remote_execution(tool_config.get("default_mode"))
-        self.remote = Config.get_tool_config("python", {}).get("remote", False)
+        self.remote = Config.get_tool_config("python", {}).get("is_remote", False)
         if self.remote:
-            ssh_config: dict = Config.get_tool_config("ssh_shell")
+            ssh_config: dict = Config.get_tool_config("python").get("ssh", {})
             self.hostname = ssh_config.get("host")
             self.port = ssh_config.get("port", 22)
             self.username = ssh_config.get("username")
