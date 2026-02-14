@@ -1,5 +1,6 @@
 from config import Config
 from agent.workflow import Workflow
+from agent.checkpoint import CheckpointManager
 from utils.user_interface import CommandLineInterface
 from datetime import datetime
 import sys
@@ -57,19 +58,31 @@ if __name__ == "__main__":
     
     # 创建命令行交互接口
     cli = CommandLineInterface()
-    
-    # 显示附件提示
-    cli.display_message("如题目中含有附件，请放附件文件到项目根目录的attachments文件夹下")
-    
-    # 等待用户确认题目已准备好
-    cli.input_question_ready("将题目文本放在Agent根目录下的question.txt回车以结束")
-    
-    # 读取题目
-    question = open("question.txt", "r", encoding="utf-8").read()
+
+    # 检查是否有存档可以恢复
+    checkpoint_mgr = CheckpointManager(checkpoint_dir=config.get("checkpoint_dir", "./checkpoints"))
+    checkpoint_data = checkpoint_mgr.load_any()
+
+    resume_data = None
+    if checkpoint_data and cli.confirm_resume():
+        # 从存档恢复，直接使用存档中的题目
+        question = checkpoint_data["problem"]
+        resume_data = checkpoint_data
+        logger.info("用户选择从存档恢复")
+    else:
+        # 不恢复存档，走正常流程：确认 question.txt
+        if checkpoint_data:
+            # 用户选择不恢复，删除旧存档
+            checkpoint_mgr.delete(checkpoint_data["problem"])
+
+        cli.display_message("如题目中含有附件，请放附件文件到项目根目录的attachments文件夹下")
+        cli.input_question_ready("将题目文本放在Agent根目录下的question.txt回车以结束")
+        question = open("question.txt", "r", encoding="utf-8").read()
+
     logger.debug(f"题目内容：{question}")
-    
+
     # 创建Workflow实例并传入用户接口
     workflow = Workflow(config=config, user_interface=cli)
-    result = workflow.solve(question)
-    
+    result = workflow.solve(question, resume_data=resume_data)
+
     logger.info(f"最终结果:{result}")

@@ -184,6 +184,24 @@ class Memory:
         keep_last = min(4, len(self.history))
         self.history = self.history[-keep_last:]
 
+    def to_dict(self) -> dict:
+        """导出记忆状态为字典，用于存档"""
+        return {
+            "history": self.history,
+            "compressed_memory": self.compressed_memory,
+            "key_facts": self.key_facts,
+            "failed_attempts": self.failed_attempts,
+            "compression_threshold": self.compression_threshold,
+        }
+
+    def restore_from_dict(self, data: dict) -> None:
+        """从字典恢复记忆状态"""
+        self.history = data.get("history", [])
+        self.compressed_memory = data.get("compressed_memory", [])
+        self.key_facts = data.get("key_facts", {})
+        self.failed_attempts = data.get("failed_attempts", {})
+        self.compression_threshold = data.get("compression_threshold", self.compression_threshold)
+
     def get_summary(self, include_key_facts: bool = True) -> str:
         """获取综合记忆摘要"""
         summary = ""

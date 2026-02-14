@@ -17,12 +17,13 @@
         },
         "embedding":{
             "model": "BAAI/bge-m3",
-            "api_key": "sk-dqzayilioruuzkpftlablexqitnvmyjdbstrggqmrzxjvgwa",
+            "api_key": "",
             "api_base": "https://api.siliconflow.cn/v1"
         }
     },
     "max_history_steps": 15,
     "compression_threshold": 7,
+    "checkpoint_dir": "./checkpoints",
     "tool_config":{
         "ssh_shell": 
         {

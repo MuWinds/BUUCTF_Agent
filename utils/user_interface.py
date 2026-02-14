@@ -60,13 +60,22 @@ class UserInterface(ABC):
     @abstractmethod
     def manual_approval_step(self, think: str, tool_calls: List[Dict]) -> tuple[bool, tuple[str, List[Dict]]]:
         """手动模式下的完整批准流程
-        
+
         Args:
             think: 思考过程
             tool_calls: 工具调用信息
-            
+
         Returns:
             (是否批准, (思考过程, 工具调用信息))
+        """
+        pass
+
+    @abstractmethod
+    def confirm_resume(self) -> bool:
+        """询问用户是否恢复存档
+
+        Returns:
+            用户选择结果（True=恢复/False=不恢复）
         """
         pass
 
@@ -149,3 +158,15 @@ class CommandLineInterface(UserInterface):
                 return False, None
             else:
                 print("无效选项，请重新选择")
+
+    def confirm_resume(self) -> bool:
+        """询问用户是否恢复存档"""
+        print("\n检测到未完成的解题存档，是否恢复？")
+        while True:
+            response = input("输入 'y' 恢复存档，输入 'n' 重新开始: ").strip().lower()
+            if response == "y":
+                return True
+            elif response == "n":
+                return False
+            else:
+                print("无效输入，请输入 'y' 或 'n'")

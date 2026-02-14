@@ -1,1 +1,1 @@
-BUU SQL COURSE 2
+[ACTF2020 新生赛]Upload，靶机信息：http://6796326a-9800-411f-849f-5b73b848fe40.node5.buuoj.cn:81

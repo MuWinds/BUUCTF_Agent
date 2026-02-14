@@ -6,6 +6,7 @@ __pycache__/
 .attachments/
 logs/
 rag_db/
+checkpoints/
 
 # C extensions
 *.so

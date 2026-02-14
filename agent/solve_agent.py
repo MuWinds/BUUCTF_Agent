@@ -8,6 +8,7 @@ from ctf_tool.base_tool import BaseTool
 from agent.analyzer import Analyzer
 from typing import Dict, Tuple, List
 from agent.memory import Memory
+from agent.checkpoint import CheckpointManager
 from utils.llm_request import LLMRequest
 from jinja2 import Environment, FileSystemLoader
 from utils.tools import ToolUtils
@@ -53,6 +54,11 @@ class SolveAgent:
         # 添加flag确认回调函数
         self.confirm_flag_callback = None  # 将由Workflow设置
 
+        # 初始化存档管理器
+        self.checkpoint_manager = CheckpointManager(
+            checkpoint_dir=self.config.get("checkpoint_dir", "./checkpoints")
+        )
+
     def _select_mode(self):
         """让用户选择运行模式"""
         print("\n请选择运行模式:")
@@ -72,12 +78,13 @@ class SolveAgent:
             else:
                 print("无效选项，请重新选择")
 
-    def solve(self) -> str:
+    def solve(self, resume_step: int = 0) -> str:
         """
         主解题函数 - 采用逐步执行方式
+        :param resume_step: 从第几步开始（用于恢复存档）
         :return: 获取的flag
         """
-        step_count = 0
+        step_count = resume_step
 
         while True:
             step_count += 1
@@ -174,6 +181,7 @@ class SolveAgent:
                 if self.confirm_flag_callback and self.confirm_flag_callback(
                     flag_candidate
                 ):
+                    self.checkpoint_manager.delete(self.problem)
                     return flag_candidate
                 else:
                     logger.info("用户确认flag不正确，继续解题")
@@ -186,10 +194,32 @@ class SolveAgent:
                 "status": "executed"
             })
 
+            # 自动存档
+            self.checkpoint_manager.save(
+                problem=self.problem,
+                step_count=step_count,
+                auto_mode=self.auto_mode,
+                memory_data=self.memory.to_dict(),
+            )
+
             # 检查是否应该提前终止
             if analysis_result.get("terminate", False):
                 self.user_interface.display_message("LLM建议提前终止解题")
+                self.checkpoint_manager.delete(self.problem)
                 return "未找到flag：提前终止"
+
+    def restore_from_checkpoint(self, data: dict) -> int:
+        """从存档恢复状态
+
+        Args:
+            data: checkpoint_manager.load() 返回的存档数据
+
+        Returns:
+            恢复后的 step_count
+        """
+        self.memory.restore_from_dict(data["memory"])
+        self.auto_mode = data.get("auto_mode", self.auto_mode)
+        return data.get("step_count", 0)
 
     def manual_approval_step(
         self, next_step: Tuple[str, List[Dict]]

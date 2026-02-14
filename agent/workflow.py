@@ -18,15 +18,21 @@ class Workflow:
         if self.config is None:
             raise ValueError("配置文件不存在")
 
-    def solve(self, problem: str) -> str:
+    def solve(self, problem: str, resume_data: dict = None) -> str:
         problem = self.summary_problem(problem)
 
         # 创建SolveAgent实例并设置flag确认回调和用户接口
         self.agent = SolveAgent(problem, user_interface=self.user_interface)
         self.agent.confirm_flag_callback = self.confirm_flag
 
+        # 如果有存档数据，恢复状态
+        resume_step = 0
+        if resume_data:
+            resume_step = self.agent.restore_from_checkpoint(resume_data)
+            self.user_interface.display_message(f"已恢复存档，从第 {resume_step} 步继续")
+
         # 将分类和解决思路传递给SolveAgent
-        result = self.agent.solve()
+        result = self.agent.solve(resume_step=resume_step)
 
         return result
 
