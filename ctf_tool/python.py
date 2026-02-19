@@ -15,12 +15,14 @@ logger = logging.getLogger(__name__)
 class PythonTool(BaseTool):
     def __init__(self, tool_config: Optional[Dict] = None):
         tool_config = tool_config or {}
-        # 在初始化时询问是否要远程执行
-        # self.remote = self.ask_remote_execution(tool_config.get("default_mode"))
-        self.remote = Config.get_tool_config("python", {}).get("is_remote", False)
+        try:
+            python_config = Config.get_tool_config("python")
+        except (KeyError, ValueError):
+            python_config = {}
+        self.remote = python_config.get("remote", False)
         if self.remote:
             ssh_config: dict = Config.get_tool_config("python").get("ssh", {})
-            self.hostname = ssh_config.get("host")
+            self.hostname = ssh_config.get("host","")
             self.port = ssh_config.get("port", 22)
             self.username = ssh_config.get("username")
             self.password = ssh_config.get("password")
@@ -35,7 +37,7 @@ class PythonTool(BaseTool):
             return self._execute_remotely(content)
         return self._execute_locally(content)
 
-    def _execute_locally(self, content: str) -> Tuple[str, str]:
+    def _execute_locally(self, content: str) -> str:
         try:
             with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as tmp:
                 tmp.write(content.encode("utf-8"))
@@ -45,11 +47,11 @@ class PythonTool(BaseTool):
                 [sys.executable, tmp_path], capture_output=True, text=True, timeout=30
             )
             os.unlink(tmp_path)
-            return result.stdout+result.stderr
+            return result.stdout + result.stderr
         except Exception as e:
-            return "", str(e)
+            return str(e)
 
-    def _execute_remotely(self, content: str) -> Tuple[str, str]:
+    def _execute_remotely(self, content: str) -> str:
         temp_name = f"py_script_{int(time.time())}.py"
 
         # 修复：使用字典参数调用execute方法
@@ -58,7 +60,7 @@ class PythonTool(BaseTool):
         stdout, stderr = self._shell_execute({"content": f"python3 {temp_name}"})
         self._shell_execute({"content": f"rm -f {temp_name}"})
 
-        return stdout, stderr
+        return stdout + stderr
 
     def _is_connected(self):
         """检查连接是否有效"""
@@ -102,6 +104,7 @@ class PythonTool(BaseTool):
             return "", "错误：未提供命令内容"
 
         try:
+            assert self.ssh_client is not None, "SSH客户端未初始化"
             _, stdout, stderr = self.ssh_client.exec_command(command)
 
             # 读取输出
@@ -136,7 +139,7 @@ class PythonTool(BaseTool):
                             "description": "要执行的Python代码",
                         }
                     },
-                    "required": ["content"]
+                    "required": ["content"],
                 },
             },
         }
