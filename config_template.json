@@ -37,5 +37,15 @@
         }
     },
     "mcp_server": {
+    },
+    "platform": {
+        "inputer": {
+            "type": "file",
+            "file_path": "./question.txt",
+            "attachment_dir": "./attachments"
+        },
+        "submitter": {
+            "type": "manual"
+        }
     }
 }

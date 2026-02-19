@@ -1,1 +1,1 @@
-[ACTF2020 新生赛]Upload，靶机信息：http://6796326a-9800-411f-849f-5b73b848fe40.node5.buuoj.cn:81
+BUU LFI COURSE 1，靶机信息：http://911078ae-4ce2-49c3-8a42-c82c6054603e.node5.buuoj.cn:81

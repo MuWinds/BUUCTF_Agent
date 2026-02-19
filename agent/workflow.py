@@ -5,12 +5,15 @@ import os
 from agent.solve_agent import SolveAgent
 from utils.text import optimize_text
 from utils.user_interface import UserInterface, CommandLineInterface
+from ctf_platform.base import QuestionInputer, FlagSubmitter, Question
+from ctf_platform.registry import create_inputer, create_submitter
 
 logger = logging.getLogger(__name__)
 
 
 class Workflow:
-    def __init__(self, config: dict, user_interface: UserInterface = None):
+    def __init__(self, config: dict, user_interface: UserInterface = None,
+                 inputer: QuestionInputer = None, submitter: FlagSubmitter = None):
         self.config = config
         self.processor_llm: dict = self.config["llm"]["pre_processor"]
         self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
@@ -18,7 +21,22 @@ class Workflow:
         if self.config is None:
             raise ValueError("配置文件不存在")
 
-    def solve(self, problem: str, resume_data: dict = None) -> str:
+        # 通过参数传入或从配置创建
+        platform_config = config.get("platform", {})
+        self.inputer = inputer or create_inputer(
+            platform_config.get("inputer", {"type": "file"})
+        )
+        self.submitter = submitter or create_submitter(
+            platform_config.get("submitter", {"type": "manual"}),
+            user_interface=self.user_interface
+        )
+        self.current_question: Question = None
+
+    def solve(self, problem: str, resume_data: dict = None,
+              question: "Question | None" = None) -> str:
+        # 记录当前题目，供 submitter 使用
+        self.current_question = question
+
         problem = self.summary_problem(problem)
 
         # 创建SolveAgent实例并设置flag确认回调和用户接口
@@ -37,12 +55,9 @@ class Workflow:
         return result
 
     def confirm_flag(self, flag_candidate: str) -> bool:
-        """
-        让用户确认flag是否正确
-        :param flag_candidate: 候选flag
-        :return: 用户确认结果
-        """
-        return self.user_interface.confirm_flag(flag_candidate)
+        """使用submitter提交flag并返回结果"""
+        result = self.submitter.submit(flag_candidate, self.current_question)
+        return result.success
 
     def summary_problem(self, problem: str) -> str:
         """
