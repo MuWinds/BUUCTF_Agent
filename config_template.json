@@ -1,51 +1,7 @@
 {
-    "llm":{
-        "analyzer":{
-            "model": "deepseek-ai/DeepSeek-R1",
-            "api_key": "",
-            "api_base": "https://api.siliconflow.cn/"
-        },
-        "solve_agent":{
-            "model": "deepseek-ai/DeepSeek-V3",
-            "api_key": "",
-            "api_base": "https://api.siliconflow.cn/"
-        },
-        "pre_processor":{
-            "model": "Qwen/Qwen3-30B-A3B-Instruct-2507",
-            "api_key": "",
-            "api_base": "https://api.siliconflow.cn/"
-        },
-        "embedding":{
-            "model": "BAAI/bge-m3",
-            "api_key": "",
-            "api_base": "https://api.siliconflow.cn/v1"
-        }
-    },
-    "max_history_steps": 15,
-    "compression_threshold": 7,
-    "checkpoint_dir": "./checkpoints",
-    "tool_config":{
-        "ssh_shell": 
-        {
-            "host": "127.0.0.1",
-            "port": 22,
-            "username": "",
-            "password": ""
-        },
-        "python":
-        {
-        }
-    },
-    "mcp_server": {
-    },
-    "platform": {
-        "inputer": {
-            "type": "file",
-            "file_path": "./question.txt",
-            "attachment_dir": "./attachments"
-        },
-        "submitter": {
-            "type": "manual"
-        }
+    "llm": {
+        "model": "gpt-4o-mini",
+        "api_key": "your-api-key-here",
+        "base_url": "https://api.openai.com/v1"
     }
 }
