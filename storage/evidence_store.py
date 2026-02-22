@@ -32,7 +32,7 @@ class EvidenceStore:
         with open(self.evidence_file, "a", encoding="utf-8") as f:
             f.write(evidence.to_jsonl() + "\n")
     
-    def append_tool_call(self, tool_name: str, arguments: dict, 
+    def append_tool_call(self, tool_name: str|None, arguments: dict, 
                          raw_output: dict, duration_ms: float = 0,
                          error: Optional[str] = None) -> int:
         """追加工具调用记录，返回行号"""
@@ -57,18 +57,18 @@ class EvidenceStore:
                        conclusion: str) -> None:
         """追加人类可读摘要"""
         content = f"""
-## Step {step_id}
+                    ## Step {step_id}
 
-**目标**: {goal}
+                    **目标**: {goal}
 
-**动作**: {action}
+                    **动作**: {action}
 
-**观测**: {observation}
+                    **观测**: {observation}
 
-**结论**: {conclusion}
+                    **结论**: {conclusion}
 
----
-"""
+                    ---
+                    """
         with open(self.summary_file, "a", encoding="utf-8") as f:
             f.write(content)
     

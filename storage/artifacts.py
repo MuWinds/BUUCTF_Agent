@@ -1,5 +1,4 @@
 """会话目录与产物管理"""
-import os
 import hashlib
 import shutil
 from datetime import datetime

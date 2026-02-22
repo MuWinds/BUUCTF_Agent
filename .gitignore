@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Config (contains API keys)
+config.json
+
+# Runs output
+runs/
+
+# IDE
+.vscode/
+.idea/
+
+# pytest
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db

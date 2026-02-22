@@ -1,7 +1,7 @@
 """CTF Agent 状态数据结构定义"""
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Optional
+from typing import Optional
 from enum import Enum
 import json
 

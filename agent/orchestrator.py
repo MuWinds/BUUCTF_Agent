@@ -1,8 +1,10 @@
 """ReAct 编排器 - CTF Agent 主循环"""
 import json
 from datetime import datetime
+from typing import Optional, Union, Callable, Awaitable
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from pydantic import SecretStr
 from langchain_openai import ChatOpenAI
 
 from agent.state import EvidenceItem, State
@@ -13,41 +15,53 @@ from utils.tools import http_request
 # ---------- System Prompt ----------
 
 SYSTEM_PROMPT = """你是一个专业的 CTF（Capture The Flag）解题 Agent。
-你的任务是通过 ReAct（Reason-Act-Observe）循环来分析和解决 CTF 题目。
+                你的任务是分析和解决 CTF 题目。
 
-## 工作原则
-1. 首先仔细分析题面，从中提取目标地址、提示信息、可能的漏洞类型
-2. 每轮只做一件可验证的小事
-3. 优先选择低成本、高信息增益的动作（先侦察，再深入）
-4. 所有观测必须结构化记录
-5. 如果连续多轮无进展，切换策略
+                ## 工作原则
+                1. 首先仔细分析题面，从中提取目标地址、提示信息、可能的漏洞类型
+                2. 每轮只做一件可验证的小事
+                3. 优先选择低成本、高信息增益的动作（先侦察，再深入）
+                4. 所有观测必须结构化记录
+                5. 如果连续多轮无进展，切换策略
 
-## 可用工具
-- http_request: 发送 HTTP 请求，用于 Web 侦察、获取页面、提交表单等
+                ## 可用工具
+                - http_request: 发送 HTTP 请求，用于 Web 侦察、获取页面、提交表单等
 
-## 输出要求
-每轮请先简要说明：
-1. 当前目标（success_criteria）
-2. 选择该动作的理由
-3. 然后调用工具执行
+                ## 输出要求
+                每轮请先简要说明：
+                1. 当前目标（success_criteria）
+                2. 选择该动作的理由
+                3. 然后调用工具执行
 
-当你认为已经找到 flag 或无法继续时，直接输出结论，不要调用工具。
-flag 格式通常为 flag{{...}} 或 ctf{{...}}。
+                当你认为已经找到 flag 或无法继续时，直接输出结论，不要调用工具。
+                flag 格式通常为 flag{{...}} 或 ctf{{...}}。
 
-## 题目信息
-{prompt}
-"""
+                ## 题目信息
+                {prompt}
+                """
 
 
 class ReActOrchestrator:
     """ReAct 编排器"""
 
+    @staticmethod
+    def _content_to_str(content: object) -> str:
+        """将 LangChain message content 规范化为字符串，避免类型不确定导致的告警。"""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        try:
+            return json.dumps(content, ensure_ascii=False)
+        except Exception:
+            return str(content)
+
     def __init__(
         self,
         model_name: str,
-        api_key: str,
-        base_url: str,
-        prompt: str,
+        api_key: Optional[Union[SecretStr, Callable[[], str], Callable[[], Awaitable[str]]]] = None,
+        base_url: str = "",
+        prompt: str = "",
         max_steps: int = 20,
         mode: str = "confirm",
     ):
@@ -74,7 +88,9 @@ class ReActOrchestrator:
         self.tools = [http_request]
         self.tool_map = {t.name: t for t in self.tools}
 
-        # 初始化 LLM（bind_tools 让 LLM 知道可用工具的 schema）
+        # 初始化 LLM
+        if isinstance(api_key, str):
+            api_key = SecretStr(api_key)
         self.llm = ChatOpenAI(
             model=model_name,
             api_key=api_key,
@@ -107,7 +123,7 @@ class ReActOrchestrator:
 
     def _record_evidence(self, step_id: int, goal: str, action: dict,
                          observation: dict, conclusion: str,
-                         judge_result: str = None) -> None:
+                         judge_result: str = "") -> None:
         """记录证据"""
         evidence = EvidenceItem(
             ts=datetime.now().isoformat(),
@@ -176,12 +192,13 @@ class ReActOrchestrator:
 
             # 没有工具调用 → 结论
             if not ai_response.tool_calls:
+                ai_text = self._content_to_str(ai_response.content)
                 self._record_evidence(
                     step_id=step,
-                    goal=ai_response.content[:200] if ai_response.content else "结论",
+                    goal=ai_text[:200] if ai_text else "结论",
                     action={"tool_name": "none", "arguments": {}},
                     observation={"summary": "Agent 给出结论，无工具调用"},
-                    conclusion=ai_response.content[:500] if ai_response.content else "",
+                    conclusion=ai_text[:500] if ai_text else "",
                 )
                 break
 
@@ -207,9 +224,10 @@ class ReActOrchestrator:
             tc = ai_response.tool_calls[0]
             obs_content = tool_messages[0].content if tool_messages else ""
 
+            ai_text = self._content_to_str(ai_response.content)
             self._record_evidence(
                 step_id=step,
-                goal=ai_response.content[:200] if ai_response.content else "工具调用",
+                goal=ai_text[:200] if ai_text else "工具调用",
                 action={"tool_name": tc["name"], "arguments": tc["args"]},
                 observation={"summary": obs_content[:500]},
                 conclusion=f"工具 {tc['name']} 执行完成",
@@ -239,12 +257,13 @@ class ReActOrchestrator:
 
             # --- 阶段 2: 判断是否有工具调用 ---
             if not ai_response.tool_calls:
+                ai_text = self._content_to_str(ai_response.content)
                 self._record_evidence(
                     step_id=step,
-                    goal=ai_response.content[:200] if ai_response.content else "结论",
+                    goal=ai_text[:200] if ai_text else "结论",
                     action={"tool_name": "none", "arguments": {}},
                     observation={"summary": "Agent 给出结论，无工具调用"},
-                    conclusion=ai_response.content[:500] if ai_response.content else "",
+                    conclusion=ai_text[:500] if ai_text else "",
                 )
                 print("\n[Agent 结论] 无更多工具调用，Agent 已给出结论。")
                 break
@@ -291,9 +310,10 @@ class ReActOrchestrator:
             tc = ai_response.tool_calls[0]
             obs_content = tool_messages[0].content if tool_messages else ""
 
+            ai_text = self._content_to_str(ai_response.content)
             self._record_evidence(
                 step_id=step,
-                goal=ai_response.content[:200] if ai_response.content else "工具调用",
+                goal=ai_text[:200] if ai_text else "工具调用",
                 action={"tool_name": tc["name"], "arguments": tc["args"]},
                 observation={"summary": obs_content[:500]},
                 conclusion=f"工具 {tc['name']} 执行完成",
