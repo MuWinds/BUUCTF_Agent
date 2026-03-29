@@ -2,28 +2,18 @@
 
 ## Commands
 
-项目提供两种运行模式：
-conda环境为buuctf_agent
+项目提供命令行运行模式：
+conda环境为ctf-agent
 ```bash
-conda activate buuctf_agent
+conda activate ctf-agent
 # 命令行模式 — 读取 question.txt 中的题目，交互式解题
 python main.py
 
-# Web 界面模式 — 启动 Flask 服务，默认端口 5000
-python webui/app.py
 ```
 
 ## Testing
 
-项目目前没有使用标准测试框架（pytest 等），仅有手动测试脚本：
-
-- `test_rag.py` — RAG 知识库系统的功能验证脚本
-
-运行方式：
-
-```bash
-python test_rag.py
-```
+项目目前没有使用标准测试框架（pytest 等）。
 
 如需添加测试，建议使用 pytest，放置在项目根目录或 `tests/` 目录下。
 
@@ -42,23 +32,14 @@ BUUCTF_Agent/
 │   ├── mcp_adapter.py       # MCP 服务器适配器（异步）
 │   ├── python.py            # Python 代码执行工具
 │   └── ssh_shell.py         # SSH Shell 工具（paramiko）
-├── rag/                     # RAG 知识库系统
-│   ├── knowledge_base.py    # 知识库管理（chromadb 向量存储）
-│   ├── memory_base.py       # 记忆基类
-│   └── rag_service.py       # RAG 服务基类
 ├── utils/                   # 工具函数
-│   ├── llm_request.py       # LLM 请求封装（litellm）
+│   ├── llm_request.py       # LLM 请求封装（OpenAI API）
 │   ├── text.py              # 文本处理
 │   ├── tools.py             # 工具加载和管理
 │   └── user_interface.py    # 用户交互接口（抽象类）
-├── webui/                   # Web 界面
-│   ├── app.py               # Flask 应用入口
-│   ├── static/              # 静态资源
-│   └── templates/           # HTML 模板
 ├── design_md/               # 设计文档
 ├── attachments/             # 题目附件目录
 ├── logs/                    # 日志输出（DEBUG 级别）
-├── rag_db/                  # RAG 向量数据库存储
 ├── checkpoints/             # 解题存档目录
 ├── main.py                  # 命令行入口
 ├── config.json              # 运行配置（从 config_template.json 复制）
@@ -130,7 +111,7 @@ Update: 修改Python执行的配置文件
 ## Boundaries
 
 允许的操作：
-- 修改 `agent/`、`ctf_tool/`、`rag/`、`utils/`、`webui/` 下的源代码
+- 修改 `agent/`、`ctf_tool/`、`utils/` 下的源代码
 - 修改 `prompt.yaml` 中的 Prompt 模板
 - 修改 `config_template.json` 配置模板
 - 添加新的工具类（继承 `BaseTool`）
@@ -138,7 +119,7 @@ Update: 修改Python执行的配置文件
 
 禁止的操作：
 - 不要修改用户的 `config.json`（包含 API 密钥等敏感信息）
-- 不要删除 `checkpoints/`、`logs/`、`rag_db/` 中的运行时数据
+- 不要删除 `checkpoints/`、`logs/` 中的运行时数据
 - 不要删除 `attachments/` 中的题目附件
 - 不要在代码中硬编码 API 密钥、密码等敏感信息
 - 不要修改 `Dockerfile` 中的基础镜像和安全相关配置，除非明确要求

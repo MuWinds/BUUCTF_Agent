@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(conda env:*)",
+      "Bash(conda run:*)",
+      "Bash(\"C:/Users/MuWinds/.conda/envs/ctf-agent/python.exe\":*)",
+      "Bash(git:*)"
+    ]
+  }
+}

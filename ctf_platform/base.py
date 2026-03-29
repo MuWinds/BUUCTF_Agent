@@ -1,59 +1,71 @@
+"""@brief 定义题目输入与提交抽象接口。"""
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
 class Question:
-    """题目数据结构"""
-    title: str                          # 题目标题
-    content: str                        # 题目正文
-    category: Optional[str] = None      # 题目分类（Web/Pwn/Crypto/Misc等）
-    attachments: Optional[List[str]] = None  # 附件文件路径列表
-    url: Optional[str] = None           # 靶机地址（如有）
-    metadata: Optional[dict] = None     # 额外元数据（平台题目ID等）
+    """@brief CTF 题目数据结构。
+
+    @param title 题目标题。
+    @param content 题目正文。
+    @param category 题目分类（Web/Pwn/Crypto/Misc 等）。
+    @param attachments 附件文件路径列表。
+    @param url 靶机地址（如有）。
+    @param metadata 额外元数据（如平台题目 ID）。
+    """
+
+    title: str
+    content: str
+    category: Optional[str] = None
+    attachments: Optional[List[str]] = None
+    url: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 @dataclass
 class SubmitResult:
-    """提交结果数据结构"""
-    success: bool           # 是否正确
-    message: str = ""       # 平台返回的消息或说明
+    """@brief Flag 提交结果数据结构。
+
+    @param success 是否提交成功。
+    @param message 平台返回消息或说明。
+    """
+
+    success: bool
+    message: str = ""
 
 
 class QuestionInputer(ABC):
-    """题目输入器抽象基类"""
+    """@brief 题目输入器抽象基类。"""
 
     @abstractmethod
     def fetch_question(self) -> Question:
-        """获取一道题目
+        """@brief 获取一道题目。
 
-        Returns:
-            Question: 题目数据
+        @return Question 题目数据。
         """
-        pass
+        raise NotImplementedError
 
     def list_questions(self) -> List[Question]:
-        """列出可用题目（可选实现，用于平台批量拉取场景）
+        """@brief 列出可用题目（可选实现）。
 
-        Returns:
-            List[Question]: 题目列表
+        @return List[Question] 题目列表。
+        @raises NotImplementedError 当输入器不支持列题时抛出。
         """
         raise NotImplementedError("该输入器不支持列出题目")
 
 
 class FlagSubmitter(ABC):
-    """Flag提交器抽象基类"""
+    """@brief Flag 提交器抽象基类。"""
 
     @abstractmethod
     def submit(self, flag: str, question: Question) -> SubmitResult:
-        """提交flag
+        """@brief 提交 Flag。
 
-        Args:
-            flag: 待提交的flag字符串
-            question: 对应的题目（用于定位平台上的题目）
-
-        Returns:
-            SubmitResult: 提交结果
+        @param flag 待提交的 Flag 字符串。
+        @param question 对应题目，用于定位平台上的题目。
+        @return SubmitResult 提交结果。
         """
-        pass
+        raise NotImplementedError

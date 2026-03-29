@@ -1,35 +1,55 @@
-import yaml
+"""
+@brief 步骤输出分析模块。
+"""
+
 import json
-from typing import Dict
+from typing import Any, Dict
+
+import yaml
+from jinja2 import Environment, FileSystemLoader
+
 from agent.memory import Memory
 from utils.llm_request import LLMRequest
-from jinja2 import Environment, FileSystemLoader
 from utils.text import fix_json_with_llm
 
 
 class Analyzer:
-    def __init__(self, config: dict, problem: str):
-        self.config: dict = config
+    """
+    @brief 基于 LLM 对单步执行结果进行分析。
+    """
+
+    def __init__(self, config: Dict[str, Any], problem: str) -> None:
+        """
+        @brief 初始化分析器。
+        @param config 全局配置字典。
+        @param problem 当前题目描述。
+        @return None。
+        """
+        self.config: Dict[str, Any] = config
         self.env = Environment(loader=FileSystemLoader("."))
-        self.analyze_llm = LLMRequest("analyzer")
+        self.analyze_llm = LLMRequest("solve_agent")
         self.problem = problem
-        self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
+        with open("./prompt.yaml", "r", encoding="utf-8") as file:
+            self.prompt: Dict[str, Any] = yaml.safe_load(file)
 
     def analyze_step_output(
-        self, memory: Memory, think: str, content: str, output: str
-    ) -> Dict:
+        self,
+        memory: Memory,
+        think: str,
+        content: str,
+        output: str,
+    ) -> Dict[str, Any]:
         """
-        使用LLM分析步骤输出
-        :param step_num: 步骤编号
-        :param content: 执行的内容
-        :param output: 命令输出
-        :param solution_plan: 解题思路
-        :return: 分析结果字典
+        @brief 使用 LLM 分析步骤输出并返回结构化结果。
+        @param memory 记忆对象，用于提供历史摘要。
+        @param think 当前步骤思考内容。
+        @param content 当前步骤执行内容。
+        @param output 当前步骤输出内容。
+        @return 分析结果字典。
+        @raises json.JSONDecodeError 当修复后的结果仍无法解析时抛出。
         """
-        # 获取记忆摘要
         history_summary = memory.get_summary()
 
-        # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("step_analysis", ""))
         prompt = template.render(
             question=self.problem,
@@ -39,14 +59,22 @@ class Analyzer:
             history_summary=history_summary,
         )
 
-        # 调用LLM进行分析
         response = self.analyze_llm.text_completion(prompt, json_check=True)
-        # 解析分析结果
+        content = response.choices[0].message.content
+        content_text = content if isinstance(content, str) else str(content)
+
         try:
-            result = json.loads(response.choices[0].message.content)
+            result = json.loads(content_text)
             if isinstance(result, dict):
                 return result
-        except (json.JSONDecodeError, KeyError) as e:
-            content = fix_json_with_llm(response.choices[0].message.content, e)
-            result = json.loads(content)
-            return result
+        except (json.JSONDecodeError, KeyError) as error:
+            fixed_content = fix_json_with_llm(
+                content_text,
+                str(error),
+            )
+            fixed_result = json.loads(fixed_content)
+            if isinstance(fixed_result, dict):
+                return fixed_result
+
+        return {}
+

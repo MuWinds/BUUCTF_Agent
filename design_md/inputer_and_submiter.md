@@ -4,7 +4,7 @@
 
 当前项目中，题目获取和flag提交的逻辑散落在多处且与具体实现强耦合：
 
-- **题目获取**：`main.py` 中硬编码读取 `question.txt` 文件；`webui/app.py` 中通过 POST 请求获取
+- **题目获取**：`main.py` 中通过输入器读取题目（默认文件输入器读取 `question.txt`）
 - **Flag提交**：仅有"用户确认flag是否正确"的流程（`UserInterface.confirm_flag`），没有自动提交到平台的能力
 - **问题**：用户无法自定义题目来源（如从BUUCTF/CTFHub等平台自动拉取），也无法自定义flag提交方式（如自动提交到平台验证）
 
@@ -362,4 +362,3 @@ ctf_platform/
 
 - 不配置 `platform` 段时，默认使用 `FileQuestionInputer` + `ManualFlagSubmitter`，行为与现有完全一致
 - `UserInterface.confirm_flag` 方法保留，`ManualFlagSubmitter` 内部调用它
-- WebUI 的 `WebInterface` 同样可以通过 `ManualFlagSubmitter` 无缝工作

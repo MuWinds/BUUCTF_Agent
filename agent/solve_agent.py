@@ -1,66 +1,81 @@
-import time
-import yaml
+"""
+@brief 解题主代理模块。
+"""
+
 import logging
-import json_repair
-from config import Config
-from rag.knowledge_base import KnowledgeBase
-from ctf_tool.base_tool import BaseTool
-from agent.analyzer import Analyzer
-from typing import Dict, Tuple, List
-from agent.memory import Memory
-from agent.checkpoint import CheckpointManager
-from utils.llm_request import LLMRequest
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
+
+import yaml
 from jinja2 import Environment, FileSystemLoader
+
+from agent.analyzer import Analyzer
+from agent.checkpoint import CheckpointManager
+from agent.memory import Memory
+from config import Config
+from ctf_tool.base_tool import BaseTool
+from utils.llm_request import LLMRequest
 from utils.tools import ToolUtils
-from utils.user_interface import UserInterface, CommandLineInterface
+from utils.user_interface import ApprovedStep, CommandLineInterface, UserInterface
 
 logger = logging.getLogger(__name__)
 
 
 class SolveAgent:
-    def __init__(self, problem: str, user_interface: UserInterface = None): 
+    """
+    @brief 负责逐步生成、执行并分析解题动作。
+    """
+
+    def __init__(
+        self,
+        problem: str,
+        user_interface: Optional[UserInterface] = None,
+    ) -> None:
+        """
+        @brief 初始化解题代理。
+        @param problem 当前题目文本。
+        @param user_interface 用户交互接口实现。
+        @raises ValueError 当配置文件缺失时抛出。
+        """
         self.config = Config.load_config()
         self.solve_llm = LLMRequest("solve_agent")
         self.problem = problem
         self.user_interface = user_interface or CommandLineInterface()
-        self.prompt: dict = yaml.safe_load(open("./prompt.yaml", "r", encoding="utf-8"))
-        self.knowledge_base = KnowledgeBase()  # 在此处初始化知识库
+        with open("./prompt.yaml", "r", encoding="utf-8") as file:
+            self.prompt: Dict[str, Any] = yaml.safe_load(file)
+
         if self.config is None:
             raise ValueError("找不到配置文件")
 
-        # 初始化Jinja2模板环境
         self.env = Environment(loader=FileSystemLoader("."))
 
-        # 初始化记忆系统
         self.memory = Memory(
             max_steps=self.config.get("max_history_steps", 10),
             compression_threshold=self.config.get("compression_threshold", 5),
         )
-        # 动态加载工具和分类信息
-        self.tools: Dict[str, BaseTool] = {}  # 工具名称 -> 工具实例
-        self.function_configs: List[Dict] = []  # 函数调用配置列表
-        self.tool_classification: Dict = {}  # 工具分类信息
 
-        # 动态加载工具
+        self.tools: Dict[str, BaseTool] = {}
+        self.function_configs: List[Dict[str, Any]] = []
+        self.tool_classification: Dict[str, Any] = {}
+
         self.analyzer = Analyzer(config=self.config, problem=self.problem)
 
-        # 加载ctf_tools文件夹中的所有工具
         self.tool = ToolUtils()
         self.tools, self.function_configs = self.tool.load_tools()
 
-        # 添加模式设置
         self.auto_mode = self.user_interface.select_mode()
 
-        # 添加flag确认回调函数
-        self.confirm_flag_callback = None  # 将由Workflow设置
+        self.confirm_flag_callback: Optional[Callable[[str], bool]] = None
 
-        # 初始化存档管理器
         self.checkpoint_manager = CheckpointManager(
             checkpoint_dir=self.config.get("checkpoint_dir", "./checkpoints")
         )
 
-    def _select_mode(self):
-        """让用户选择运行模式"""
+    def _select_mode(self) -> None:
+        """
+        @brief 通过命令行让用户选择自动/手动模式。
+        @return None。
+        """
         print("\n请选择运行模式:")
         print("1. 自动模式（Agent自动生成和执行所有命令）")
         print("2. 手动模式（每一步需要用户批准）")
@@ -71,18 +86,17 @@ class SolveAgent:
                 self.auto_mode = True
                 logger.info("已选择自动模式")
                 return
-            elif choice == "2":
+            if choice == "2":
                 self.auto_mode = False
                 logger.info("已选择手动模式")
                 return
-            else:
-                print("无效选项，请重新选择")
+            print("无效选项，请重新选择")
 
     def solve(self, resume_step: int = 0) -> str:
         """
-        主解题函数 - 采用逐步执行方式
-        :param resume_step: 从第几步开始（用于恢复存档）
-        :return: 获取的flag
+        @brief 主解题循环，逐步调用工具并分析输出。
+        @param resume_step 恢复时的起始步骤编号。
+        @return 最终 flag 或终止原因说明。
         """
         step_count = resume_step
 
@@ -90,7 +104,10 @@ class SolveAgent:
             step_count += 1
             self.user_interface.display_message(f"\n正在思考第 {step_count} 步...")
 
-            # 生成下一步执行命令
+            if not self.function_configs:
+                self.user_interface.display_message("当前没有可用工具，无法继续解题")
+                return "未找到flag：无可用工具"
+
             next_step = None
             while next_step is None:
                 next_step = self.next_instruction()
@@ -100,49 +117,53 @@ class SolveAgent:
                 self.user_interface.display_message("生成执行内容失败，10秒后重试...")
                 time.sleep(10)
 
+            if next_step is None:
+                self.user_interface.display_message("生成执行内容失败")
+                return "解题终止"
+
+            think, tool_calls = next_step
             if not self.auto_mode:
-                approved, next_step = self.manual_approval_step(next_step)
-                think, tool_calls = next_step
-                if not approved:
+                approved, approved_step = self.manual_approval_step(next_step)
+                if not approved or approved_step is None:
                     self.user_interface.display_message("用户终止解题")
                     return "解题终止"
+                think, tool_calls = approved_step
 
             self.memory.add_planned_step(step_count, think, tool_calls)
 
-            # 执行所有工具调用
             all_tool_results = []
             combined_raw_output = ""
-            
-            for i, tool_call in enumerate(tool_calls):
-                self.user_interface.display_message(f"\n执行工具 {i+1}/{len(tool_calls)}: {tool_call.get('tool_name')}")
-                
+
+            for index, tool_call in enumerate(tool_calls):
+                self.user_interface.display_message(
+                    f"\n执行工具 {index + 1}/{len(tool_calls)}: "
+                    f"{tool_call.get('tool_name')}"
+                )
+
                 tool_name = tool_call.get("tool_name")
-                arguments: dict = tool_call.get("arguments", {})
-                
+                arguments: Dict[str, Any] = tool_call.get("arguments", {})
+
                 if tool_name in self.tools:
                     try:
                         tool = self.tools[tool_name]
                         result = tool.execute(tool_name, arguments)
                         if not result:
                             result = "注意！无输出内容！"
-                        
-                        # 保存每个工具的结果
+
                         tool_result = {
                             "tool_name": tool_name,
                             "arguments": arguments,
-                            "raw_output": result
+                            "raw_output": result,
                         }
                         all_tool_results.append(tool_result)
-                        
-                        # 构建原始输出字符串
                         combined_raw_output += str(result) + "\n---\n"
-                        
-                    except Exception as e:
-                        error_msg = f"工具执行出错: {str(e)}"
+
+                    except Exception as error:
+                        error_msg = f"工具执行出错: {str(error)}"
                         tool_result = {
                             "tool_name": tool_name,
                             "arguments": arguments,
-                            "raw_output": error_msg
+                            "raw_output": error_msg,
                         }
                         all_tool_results.append(tool_result)
                         combined_raw_output += error_msg + "\n---\n"
@@ -151,50 +172,65 @@ class SolveAgent:
                     tool_result = {
                         "tool_name": tool_name,
                         "arguments": arguments,
-                        "raw_output": error_msg
+                        "raw_output": error_msg,
                     }
                     all_tool_results.append(tool_result)
                     combined_raw_output += error_msg + "\n---\n"
-                
-                logger.info(f"工具 {tool_name} 原始输出:\n{all_tool_results[-1]['raw_output']}")
 
-            # 使用通用output_summary函数
+                logger.info(
+                    "工具 %s 原始输出:\n%s",
+                    tool_name,
+                    all_tool_results[-1]["raw_output"],
+                )
+
             output_summary = ToolUtils.output_summary(
                 tool_results=all_tool_results,
                 think=think,
-                tool_output=combined_raw_output
+                tool_output=combined_raw_output,
             )
 
-            logger.info(f"工具输出摘要（共{len(all_tool_results)}个工具）:\n{output_summary}")
-
-            # 使用LLM分析所有工具的输出
-            analysis_result: Dict = self.analyzer.analyze_step_output(
-                self.memory, step_count, output_summary, think
+            logger.info(
+                "工具输出摘要（共%s个工具）:\n%s",
+                len(all_tool_results),
+                output_summary,
             )
 
-            # 检查LLM是否在输出中发现了flag
+            analysis_result: Dict[str, Any] = (
+                self.analyzer.analyze_step_output(
+                    self.memory,
+                    str(step_count),
+                    output_summary,
+                    think,
+                )
+            )
+
             if analysis_result.get("flag_found", False):
-                flag_candidate = analysis_result.get("flag", "")
-                logger.info(f"LLM报告发现flag: {flag_candidate}")
+                flag_value = analysis_result.get("flag")
+                flag_candidate = flag_value if isinstance(flag_value, str) else ""
+                logger.info("LLM报告发现flag: %s", flag_candidate)
 
-                # 使用回调函数确认flag
                 if self.confirm_flag_callback and self.confirm_flag_callback(
                     flag_candidate
                 ):
                     self.checkpoint_manager.delete(self.problem)
                     return flag_candidate
-                else:
-                    logger.info("用户确认flag不正确，继续解题")
+                logger.info("用户确认flag不正确，继续解题")
 
-            self.memory.update_step(step_count, {
-                "tool_args": tool_calls[0].get("arguments", {}) if tool_calls else {},
-                "output": output_summary,
-                "raw_outputs": combined_raw_output,
-                "analysis": analysis_result,
-                "status": "executed"
-            })
+            self.memory.update_step(
+                step_count,
+                {
+                    "tool_args": (
+                        tool_calls[0].get("arguments", {})
+                        if tool_calls
+                        else {}
+                    ),
+                    "output": output_summary,
+                    "raw_outputs": combined_raw_output,
+                    "analysis": analysis_result,
+                    "status": "executed",
+                },
+            )
 
-            # 自动存档
             self.checkpoint_manager.save(
                 problem=self.problem,
                 step_count=step_count,
@@ -202,147 +238,188 @@ class SolveAgent:
                 memory_data=self.memory.to_dict(),
             )
 
-            # 检查是否应该提前终止
             if analysis_result.get("terminate", False):
                 self.user_interface.display_message("LLM建议提前终止解题")
                 self.checkpoint_manager.delete(self.problem)
                 return "未找到flag：提前终止"
 
-    def restore_from_checkpoint(self, data: dict) -> int:
-        """从存档恢复状态
-
-        Args:
-            data: checkpoint_manager.load() 返回的存档数据
-
-        Returns:
-            恢复后的 step_count
+    def restore_from_checkpoint(self, data: Dict[str, Any]) -> int:
         """
-        self.memory.restore_from_dict(data["memory"])
-        self.auto_mode = data.get("auto_mode", self.auto_mode)
-        return data.get("step_count", 0)
+        @brief 从存档恢复代理状态。
+        @param data 存档管理器读取到的存档数据。
+        @return 恢复后的 step_count。
+        """
+        memory_data = data.get("memory")
+        if isinstance(memory_data, dict):
+            self.memory.restore_from_dict(memory_data)
+
+        auto_mode_value = data.get("auto_mode")
+        if isinstance(auto_mode_value, bool):
+            self.auto_mode = auto_mode_value
+
+        step_count_value = data.get("step_count")
+        return step_count_value if isinstance(step_count_value, int) else 0
 
     def manual_approval_step(
-        self, next_step: Tuple[str, List[Dict]]
-    ) -> Tuple[bool, Tuple[str, List[Dict]]]:
-        """手动模式：让用户无限次反馈/重思，直到 ta 主动选 1 或 3"""
+        self,
+        next_step: Tuple[str, List[Dict[str, Any]]],
+    ) -> Tuple[bool, Optional[ApprovedStep]]:
+        """
+        @brief 手动模式下处理用户批准、反馈与终止。
+        @param next_step 候选步骤，包含思考和工具调用。
+        @return (是否批准, 最终步骤数据)。
+        """
         while True:
             think, tool_calls = next_step
-            
-            # 使用用户接口获取批准结果
-            result = self.user_interface.manual_approval_step(think, tool_calls)
-            approved, data = result
-            
-            if approved:
-                # 用户批准执行
-                return True, data
-            elif data is None:
-                # 用户选择终止
-                return False, None
-            else:
-                # 用户提供了反馈，需要重新思考
-                if len(data) == 3:
-                    # 包含反馈的情况
-                    _, _, feedback = data
-                    next_step = self.reflection(think, feedback)
-                    if not next_step:
-                        self.user_interface.display_message("（思考失败，可继续反馈或选 3 终止）")
-                else:
-                    # 其他情况
-                    next_step = data
 
-    def next_instruction(self) -> Tuple[str, List[Dict]]:
+            approved, data = self.user_interface.manual_approval_step(
+                think,
+                tool_calls,
+            )
+
+            if approved:
+                if data is not None and len(data) == 2:
+                    return True, cast(ApprovedStep, data)
+                return False, None
+
+            if data is None:
+                return False, None
+
+            if len(data) == 3:
+                _, _, feedback = cast(Tuple[str, List[Dict[str, Any]], str], data)
+                reflected_step = self.reflection(think, feedback)
+                if reflected_step:
+                    next_step = reflected_step
+                else:
+                    self.user_interface.display_message(
+                        "（思考失败，可继续反馈或选 3 终止）"
+                    )
+                    next_step = (think, tool_calls)
+            else:
+                next_step = cast(Tuple[str, List[Dict[str, Any]]], data)
+
+    @staticmethod
+    def _extract_think(message_content: object) -> str:
         """
-        生成下一步执行命令 - 返回思考和多个工具调用
-        :return: (思考内容, 工具调用列表)
+        @brief 从模型消息中提取思考文本。
+        @param message_content 模型返回的 message.content。
+        @return 清洗后的思考文本。
         """
-        # 获取记忆摘要
+        if message_content is None:
+            return "未返回思考内容（仅返回工具调用）"
+
+        if isinstance(message_content, str):
+            think = message_content.strip()
+        else:
+            think = str(message_content).strip()
+
+        return think or "未返回思考内容（仅返回工具调用）"
+
+    def _request_tool_plan(
+        self,
+        prompt: str,
+    ) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
+        """
+        @brief 请求模型返回思考内容与原生工具调用计划。
+        @param prompt 给模型的提示词。
+        @return (思考内容, 工具调用列表)；失败返回 None。
+        """
+        try:
+            response = self.solve_llm.text_completion(
+                prompt=prompt,
+                json_check=False,
+                tools=self.function_configs,
+                tool_choice="required",
+            )
+        except Exception as error:
+            logger.error("调用LLM原生工具失败: %s", error)
+            return None
+
+        think_content = self._extract_think(
+            response.choices[0].message.content
+        )
+        tool_calls = ToolUtils.parse_tool_response(response)
+        if tool_calls:
+            return think_content, tool_calls
+
+        logger.warning("LLM未返回tool_calls，重试一次")
+        try:
+            retry_response = self.solve_llm.text_completion(
+                prompt=prompt,
+                json_check=False,
+                tools=self.function_configs,
+                tool_choice="required",
+            )
+        except Exception as error:
+            logger.error("重试原生工具调用失败: %s", error)
+            return None
+
+        retry_think = self._extract_think(
+            retry_response.choices[0].message.content
+        )
+        retry_tool_calls = ToolUtils.parse_tool_response(retry_response)
+        if retry_tool_calls:
+            return retry_think, retry_tool_calls
+
+        logger.error("连续两次未返回tool_calls")
+        return None
+
+    def next_instruction(self) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
+        """
+        @brief 生成下一步执行计划。
+        @return (思考内容, 工具调用列表)；失败返回 None。
+        """
         history_summary = self.memory.get_summary()
 
-        # 获取相关知识库内容
-        relevant_knowledge = self.knowledge_base.get_relevant_knowledge(self.problem)
-
-        # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("think_next", ""))
-
-        # 渲染提示
         think_prompt = template.render(
             question=self.problem,
             history_summary=history_summary,
-            relevant_knowledge=relevant_knowledge,
             tools=self.function_configs,
         )
 
-        # 调用LLM，要求返回思考和工具调用列表
-        response = self.solve_llm.text_completion(
-            prompt=think_prompt,
-            json_check=True,  # 要求返回JSON格式
-        )
+        result = self._request_tool_plan(think_prompt)
+        if result is None:
+            return None
 
-        # 解析LLM返回的思考内容和工具调用列表
-        result = json_repair.loads(response.choices[0].message.content)
-
-        think_content = result.get("think", "未返回思考内容")
-        logger.info(f"思考内容: {think_content}")
-
-        # 解析工具调用列表
-        tool_calls = ToolUtils.parse_tool_response(response)
+        think_content, tool_calls = result
+        logger.info("思考内容: %s", think_content)
         return think_content, tool_calls
 
-    def reflection(self, think: str, feedback: str) -> Tuple[str, List[Dict]]:
+    def reflection(
+        self,
+        think: str,
+        feedback: str,
+    ) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
         """
-        根据用户反馈重新生成思考内容和工具调用
+        @brief 根据用户反馈重新生成步骤计划。
+        @param think 原始思考目的。
+        @param feedback 用户反馈。
+        @return (新思考, 新工具调用列表)；失败返回 None。
         """
-        # 获取记忆摘要
         history_summary = self.memory.get_summary()
 
-        # 获取相关知识库内容
-        relevant_knowledge = self.knowledge_base.get_relevant_knowledge(self.problem)
-
-        # 使用Jinja2渲染提示
         template = self.env.from_string(self.prompt.get("reflection", ""))
-
-        # 渲染提示
         reflection_prompt = template.render(
             question=self.problem,
             history_summary=history_summary,
-            relevant_knowledge=relevant_knowledge,
             original_purpose=think,
             feedback=feedback,
             tools=self.function_configs,
         )
 
-        # 调用LLM，返回思考和工具调用列表
-        response = self.solve_llm.text_completion(
-            prompt=reflection_prompt,
-            json_check=True,
-        )
+        result = self._request_tool_plan(reflection_prompt)
+        if result is None:
+            logger.warning("反思阶段未能生成有效工具调用")
+            return None
 
-        # 解析LLM返回的思考内容和工具调用列表
-        try:
-            result = json_repair.loads(response.choices[0].message.content)
-            think_content = result.get("think", "未返回思考内容")
-            # 使用统一解析逻辑规范化工具调用结构
-            tool_calls = ToolUtils.parse_tool_response(response)
-            if not tool_calls:
-                logger.warning("LLM没有选择任何工具")
-                tool_calls = [{"tool_name": "无可用工具", "arguments": {}}]
+        think_content, tool_calls = result
+        logger.info("重新思考内容: %s", think_content)
+        for index, tool_call in enumerate(tool_calls):
+            logger.info(
+                "重新选择的工具 %s: %s",
+                index + 1,
+                tool_call.get("tool_name"),
+            )
 
-            logger.info(f"重新思考内容: {think_content}")
-            for i, tool_call in enumerate(tool_calls):
-                logger.info(
-                    f"重新选择的工具 {i+1}: {tool_call.get('name', tool_call.get('tool_name'))}"
-                )
-
-            return think_content, tool_calls
-
-        except Exception as e:
-            logger.error(f"解析LLM返回的JSON失败: {e}")
-            # 尝试从文本中提取思考和工具信息
-            content = response.choices[0].message.content
-            think_content = "解析错误，使用默认思考"
-
-            # 尝试从文本中提取工具调用
-            tool_arg = ToolUtils.parse_tool_response(content)
-            tool_calls = [tool_arg] if tool_arg else []
-
-            return think_content, tool_calls
+        return think_content, tool_calls
