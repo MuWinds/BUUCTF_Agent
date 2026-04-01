@@ -25,7 +25,6 @@ MarkupSafe
 multidict
 openai
 packaging
-paramiko
 propcache
 pycparser
 pydantic

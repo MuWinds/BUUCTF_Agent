@@ -17,6 +17,29 @@ from ctf_platform import create_inputer, create_submitter
 from utils.user_interface import CommandLineInterface
 
 
+class HTTPRequestToDebugFilter(logging.Filter):
+    """
+    @brief 将模型 HTTP 请求日志从 INFO 降级为 DEBUG。
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """
+        @brief 过滤并降级匹配日志级别。
+        @param record 待处理日志记录。
+        @return bool 始终返回 True，不拦截日志。
+        """
+        if record.name in {"httpx", "httpcore"}:
+            message = record.getMessage()
+            if (
+                isinstance(message, str)
+                and message.startswith("HTTP Request:")
+                and record.levelno >= logging.INFO
+            ):
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
+        return True
+
+
 def setup_logging() -> None:
     """
     @brief 初始化日志系统并设置第三方库日志级别。
@@ -51,6 +74,10 @@ def setup_logging() -> None:
         logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
     )
 
+    http_request_filter = HTTPRequestToDebugFilter()
+    file_handler.addFilter(http_request_filter)
+    console_handler.addFilter(http_request_filter)
+
     root_logger = logging.getLogger()
     for handler in root_logger.handlers[:]:
         root_logger.removeHandler(handler)
@@ -58,9 +85,8 @@ def setup_logging() -> None:
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
 
-    logging.getLogger("LiteLLM").setLevel(logging.WARNING)
-    logging.getLogger("paramiko").setLevel(logging.WARNING)
-    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.DEBUG)
+    logging.getLogger("httpcore").setLevel(logging.DEBUG)
 
 
 def main() -> None:

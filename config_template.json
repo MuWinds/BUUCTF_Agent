@@ -8,13 +8,13 @@
     "compression_threshold": 7,
     "checkpoint_dir": "./checkpoints",
     "tool_config": {
-        "ssh_shell": {
-            "host": "127.0.0.1",
-            "port": 22,
-            "username": "",
-            "password": ""
-        },
-        "python": {}
+        "bash_shell": {
+            "shell_path": "bash",
+            "working_dir": ".",
+            "timeout": 30,
+            "login_shell": false,
+            "env": {}
+        }
     },
     "mcp_server": {},
     "platform": {
