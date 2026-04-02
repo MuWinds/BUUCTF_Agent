@@ -22,7 +22,6 @@
 
 先决条件
 - Python 3.10+
-- Conda
 
 ### 1) 克隆仓库
 
@@ -31,11 +30,16 @@ git clone https://github.com/MuWinds/BUUCTF_Agent.git
 cd BUUCTF_Agent
 ```
 
-### 2) 创建并激活 conda 环境（ctf-agent）
+### 2) 创建并激活 venv 虚拟环境
 
 ```bash
-conda create -n ctf-agent python=3.10 -y
-conda activate ctf-agent
+# Windows PowerShell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# macOS / Linux
+# python3 -m venv .venv
+# source .venv/bin/activate
 ```
 
 ### 3) 安装依赖
@@ -81,8 +85,8 @@ python main.py
 - 支持更多工具，比如二进制分析等，不局限于Web题和Web相关的密码学之类的
 - ~~提供更美观的界面，比如Web前端或者Qt界面~~（已完成）
 - ~~将不同工具的LLM进行区分，或者按照思考推理与代码指令编写两种任务分派到不同的LLM~~（已完成）
-- ~~更好的MCP支持~~（已完成✅）
-- 实现不同OJ平台的自动化，提供手动输入题面之外更便捷的选择
+- ~~更好的MCP支持~~（已完成）
+- ~~实现不同OJ平台的自动化，提供手动输入题面之外更便捷的选择~~（已实现）
 - ~~支持附件输入~~已实现，需要在项目根目录的attachments目录下放入附件
 
 

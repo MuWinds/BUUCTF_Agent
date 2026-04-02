@@ -3,9 +3,19 @@
 ## Commands
 
 项目提供命令行运行模式：
-conda环境为ctf-agent
+使用 Python `venv` 虚拟环境
 ```bash
-conda activate ctf-agent
+# Windows PowerShell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+
+# macOS / Linux
+# python3 -m venv .venv
+# source .venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
+
 # 命令行模式 — 读取 question.txt 中的题目，交互式解题
 python main.py
 
@@ -37,7 +47,7 @@ BUUCTF_Agent/
 │   ├── text.py              # 文本处理
 │   ├── tools.py             # 工具加载和管理
 │   └── user_interface.py    # 用户交互接口（抽象类）
-├── design_md/               # 设计文档
+├── docs/               # 设计文档
 ├── attachments/             # 题目附件目录
 ├── logs/                    # 日志输出（DEBUG 级别）
 ├── checkpoints/             # 解题存档目录
@@ -55,7 +65,7 @@ BUUCTF_Agent/
 
 ## Code Style
 
-- 语言：Python 3.8+（推荐 3.10+）
+- 语言：Python 3.8+
 - 缩进：4 个空格
 - 编码：UTF-8
 - 类名：PascalCase（`SolveAgent`, `CheckpointManager`）

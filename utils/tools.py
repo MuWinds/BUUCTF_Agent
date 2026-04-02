@@ -3,7 +3,7 @@ import inspect
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import json_repair
 import yaml
@@ -144,6 +144,74 @@ class ToolUtils:
             logger.info("参数: %s", tool_call.get("arguments"))
 
         return tool_calls
+
+    @staticmethod
+    def execute_tools(
+        tools: Dict[str, BaseTool],
+        tool_calls: List[Dict[str, Any]],
+        display_message: Optional[Callable[[str], None]] = None,
+    ) -> Tuple[List[Dict[str, Any]], str]:
+        """
+        @brief 执行一组工具调用并收集原始输出。
+
+        @param tools 工具实例映射，key 为工具名。
+        @param tool_calls 工具调用计划列表，每项包含 tool_name 和 arguments。
+        @param display_message 可选的消息显示回调，用于输出执行进度。
+        @return 二元组：(工具结果列表, 合并后的原始输出字符串)。
+        """
+        all_tool_results: List[Dict[str, Any]] = []
+        combined_raw_output = ""
+
+        for index, tool_call in enumerate(tool_calls):
+            tool_name = tool_call.get("tool_name")
+            arguments: Dict[str, Any] = tool_call.get("arguments", {})
+
+            if display_message is not None:
+                display_message(
+                    f"\n执行工具 {index + 1}/{len(tool_calls)}: "
+                    f"{tool_name}"
+                )
+
+            if tool_name in tools:
+                try:
+                    tool = tools[tool_name]
+                    result = tool.execute(tool_name, arguments)
+                    if not result:
+                        result = "注意！无输出内容！"
+
+                    tool_result = {
+                        "tool_name": tool_name,
+                        "arguments": arguments,
+                        "raw_output": result,
+                    }
+                    all_tool_results.append(tool_result)
+                    combined_raw_output += str(result) + "\n---\n"
+                except Exception as error:
+                    error_msg = f"工具执行出错: {str(error)}"
+                    tool_result = {
+                        "tool_name": tool_name,
+                        "arguments": arguments,
+                        "raw_output": error_msg,
+                    }
+                    all_tool_results.append(tool_result)
+                    combined_raw_output += error_msg + "\n---\n"
+            else:
+                error_msg = f"错误: 未找到工具 '{tool_name}'"
+                tool_result = {
+                    "tool_name": tool_name,
+                    "arguments": arguments,
+                    "raw_output": error_msg,
+                }
+                all_tool_results.append(tool_result)
+                combined_raw_output += error_msg + "\n---\n"
+
+            logger.info(
+                "工具 %s 原始输出:\n%s",
+                tool_name,
+                all_tool_results[-1]["raw_output"],
+            )
+
+        return all_tool_results, combined_raw_output
 
     @staticmethod
     def output_summary(

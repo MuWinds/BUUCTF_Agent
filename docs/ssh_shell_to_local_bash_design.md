@@ -465,7 +465,7 @@ else:
 
 ### 9.4 风险：Windows Bash 路径问题
 
-项目当前运行环境可能是 Windows + PowerShell + Conda，实际执行器却是 Bash。
+项目当前运行环境可能是 Windows + PowerShell + venv，实际执行器却是 Bash。
 
 应对：
 

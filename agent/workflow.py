@@ -13,7 +13,7 @@ from ctf_platform.base import FlagSubmitter, Question, QuestionInputer
 from ctf_platform.registry import create_inputer, create_submitter
 from utils.llm_request import LLMRequest
 from utils.text import optimize_text
-from utils.user_interface import CommandLineInterface, UserInterface
+from utils.user_interface import UserInterface
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class Workflow:
     def __init__(
         self,
         config: dict,
-        user_interface: Optional[UserInterface] = None,
+        user_interface: UserInterface,
         inputer: Optional[QuestionInputer] = None,
         submitter: Optional[FlagSubmitter] = None,
     ) -> None:
@@ -42,7 +42,7 @@ class Workflow:
         self.processor_llm = LLMRequest("solve_agent")
         with open("./prompt.yaml", "r", encoding="utf-8") as file:
             self.prompt: dict = yaml.safe_load(file)
-        self.user_interface = user_interface or CommandLineInterface()
+        self.user_interface = user_interface
 
         if self.config is None:
             raise ValueError("配置文件不存在")

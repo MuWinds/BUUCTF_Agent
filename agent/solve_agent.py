@@ -16,7 +16,7 @@ from config import Config
 from ctf_tool.base_tool import BaseTool
 from utils.llm_request import LLMRequest
 from utils.tools import ToolUtils
-from utils.user_interface import ApprovedStep, CommandLineInterface, UserInterface
+from utils.user_interface import ApprovedStep, UserInterface
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class SolveAgent:
     def __init__(
         self,
         problem: str,
-        user_interface: Optional[UserInterface] = None,
+        user_interface: UserInterface,
     ) -> None:
         """
         @brief 初始化解题代理。
@@ -40,7 +40,7 @@ class SolveAgent:
         self.config = Config.load_config()
         self.solve_llm = LLMRequest("solve_agent")
         self.problem = problem
-        self.user_interface = user_interface or CommandLineInterface()
+        self.user_interface = user_interface
         with open("./prompt.yaml", "r", encoding="utf-8") as file:
             self.prompt: Dict[str, Any] = yaml.safe_load(file)
 
@@ -70,27 +70,6 @@ class SolveAgent:
         self.checkpoint_manager = CheckpointManager(
             checkpoint_dir=self.config.get("checkpoint_dir", "./checkpoints")
         )
-
-    def _select_mode(self) -> None:
-        """
-        @brief 通过命令行让用户选择自动/手动模式。
-        @return None。
-        """
-        print("\n请选择运行模式:")
-        print("1. 自动模式（Agent自动生成和执行所有命令）")
-        print("2. 手动模式（每一步需要用户批准）")
-
-        while True:
-            choice = input("请输入选项编号: ").strip()
-            if choice == "1":
-                self.auto_mode = True
-                logger.info("已选择自动模式")
-                return
-            if choice == "2":
-                self.auto_mode = False
-                logger.info("已选择手动模式")
-                return
-            print("无效选项，请重新选择")
 
     def solve(self, resume_step: int = 0) -> str:
         """
@@ -130,58 +109,11 @@ class SolveAgent:
                 think, tool_calls = approved_step
 
             self.memory.add_planned_step(step_count, think, tool_calls)
-
-            all_tool_results = []
-            combined_raw_output = ""
-
-            for index, tool_call in enumerate(tool_calls):
-                self.user_interface.display_message(
-                    f"\n执行工具 {index + 1}/{len(tool_calls)}: "
-                    f"{tool_call.get('tool_name')}"
-                )
-
-                tool_name = tool_call.get("tool_name")
-                arguments: Dict[str, Any] = tool_call.get("arguments", {})
-
-                if tool_name in self.tools:
-                    try:
-                        tool = self.tools[tool_name]
-                        result = tool.execute(tool_name, arguments)
-                        if not result:
-                            result = "注意！无输出内容！"
-
-                        tool_result = {
-                            "tool_name": tool_name,
-                            "arguments": arguments,
-                            "raw_output": result,
-                        }
-                        all_tool_results.append(tool_result)
-                        combined_raw_output += str(result) + "\n---\n"
-
-                    except Exception as error:
-                        error_msg = f"工具执行出错: {str(error)}"
-                        tool_result = {
-                            "tool_name": tool_name,
-                            "arguments": arguments,
-                            "raw_output": error_msg,
-                        }
-                        all_tool_results.append(tool_result)
-                        combined_raw_output += error_msg + "\n---\n"
-                else:
-                    error_msg = f"错误: 未找到工具 '{tool_name}'"
-                    tool_result = {
-                        "tool_name": tool_name,
-                        "arguments": arguments,
-                        "raw_output": error_msg,
-                    }
-                    all_tool_results.append(tool_result)
-                    combined_raw_output += error_msg + "\n---\n"
-
-                logger.info(
-                    "工具 %s 原始输出:\n%s",
-                    tool_name,
-                    all_tool_results[-1]["raw_output"],
-                )
+            all_tool_results, combined_raw_output = ToolUtils.execute_tools(
+                tools=self.tools,
+                tool_calls=tool_calls,
+                display_message=self.user_interface.display_message,
+            )
 
             output_summary = ToolUtils.output_summary(
                 tool_results=all_tool_results,
