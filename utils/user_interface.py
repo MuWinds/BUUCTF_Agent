@@ -33,11 +33,11 @@ class UserInterface(ABC):
         pass
 
     @abstractmethod
-    def input_question_ready(self, prompt: str) -> None:
+    def input_question(self, prompt: str) -> str:
         """
-        @brief 等待用户确认题目输入已准备完毕。
+        @brief 获取用户输入的题目文本（支持多行）。
         @param prompt 输入提示信息。
-        @return 无返回值。
+        @return 用户输入的题目文本。
         """
         pass
 

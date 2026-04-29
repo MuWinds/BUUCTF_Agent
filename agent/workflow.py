@@ -103,18 +103,10 @@ class Workflow:
 
     def summary_problem(self, problem: str) -> str:
         """
-        @brief 对题目进行附件补充和必要摘要。
+        @brief 对题目进行必要摘要。
         @param problem 原始题目描述。
         @return 处理后的题目文本。
         """
-        attachment_dir = "./attachments"
-        if os.path.isdir(attachment_dir):
-            attachment_files = os.listdir(attachment_dir)
-            if attachment_files:
-                problem += "\n题目包含附件如下："
-                for filename in attachment_files:
-                    problem += f"\n- {filename}"
-
         if len(problem) < 256:
             return problem
 

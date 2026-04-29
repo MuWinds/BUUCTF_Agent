@@ -18,33 +18,56 @@ logger = logging.getLogger(__name__)
 class Memory:
     """
     @brief 管理解题历史、关键事实与压缩记忆。
+
+    @details
+    基于 token 估算的上下文占用率触发压缩：
+    当 get_summary() 的估算 token 数 >= context_window * compression_ratio 时自动压缩。
     """
 
     def __init__(
         self,
-        max_steps: int = 15,
-        compression_threshold: int = 7,
+        context_window: int = 128000,
+        compression_ratio: float = 0.8,
     ) -> None:
         """
         @brief 初始化记忆对象。
-        @param max_steps 最大保存步骤数。
-        @param compression_threshold 触发压缩的步骤阈值。
-        @return None。
+        @param context_window 模型上下文窗口大小（token 数）。
+        @param compression_ratio 触发压缩的上下文占用比例。
         """
         self.config = Config.load_config()
         self.solve_llm = LLMRequest("solve_agent")
-        self.max_steps = max_steps
-        self.compression_threshold = compression_threshold
+        self.context_window = context_window
+        self.compression_ratio = compression_ratio
         self.history: List[Dict[str, Any]] = []
         self.compressed_memory: List[Dict[str, Any]] = []
         self.key_facts: Dict[str, str] = {}
         self.failed_attempts: Dict[str, int] = {}
 
+        self._token_limit = int(context_window * compression_ratio)
+
+    @staticmethod
+    def _estimate_tokens(text: str) -> int:
+        """
+        @brief 简单估算文本的 token 数量（约 4 字符/token）。
+        """
+        return max(1, len(text) // 4)
+
+    def _current_usage_tokens(self) -> int:
+        """
+        @brief 估算当前 get_summary() 会占据的 token 数。
+        """
+        summary = self.get_summary()
+        return self._estimate_tokens(summary)
+
+    def _should_compress(self) -> bool:
+        """
+        @brief 判断当前上下文占用是否达到压缩阈值。
+        """
+        return self._current_usage_tokens() >= self._token_limit
+
     def add_step(self, step: Dict[str, Any]) -> None:
         """
-        @brief 添加执行步骤并更新关键事实与失败统计。
-        @param step 单步执行数据。
-        @return None。
+        @brief 添加执行步骤并在 token 超限时触发压缩。
         """
         self.history.append(step)
 
@@ -65,7 +88,7 @@ class Memory:
                     self.failed_attempts.get(command, 0) + 1
                 )
 
-        if len(self.history) >= self.compression_threshold:
+        if self._should_compress():
             self.compress_memory()
 
     def add_planned_step(
@@ -75,11 +98,7 @@ class Memory:
         tool_calls: List[Dict[str, Any]],
     ) -> None:
         """
-        @brief 记录尚未执行的计划步骤。
-        @param step_num 步骤编号。
-        @param think 当前步骤思考内容。
-        @param tool_calls 当前步骤工具调用列表。
-        @return None。
+        @brief 记录尚未执行的计划步骤，token 超限时触发压缩。
         """
         self.history.append(
             {
@@ -90,12 +109,12 @@ class Memory:
             }
         )
 
+        if self._should_compress():
+            self.compress_memory()
+
     def update_step(self, step_num: int, fields: Dict[str, Any]) -> None:
         """
-        @brief 按步骤号更新历史记录中的字段。
-        @param step_num 目标步骤号。
-        @param fields 需要更新的字段集合。
-        @return None。
+        @brief 按步骤号更新历史记录并在 token 超限时触发压缩。
         """
         for index in range(len(self.history) - 1, -1, -1):
             step = self.history[index]
@@ -103,12 +122,11 @@ class Memory:
                 step.update(fields)
                 break
 
+        if self._should_compress():
+            self.compress_memory()
+
     def _extract_key_facts(self, step: Dict[str, Any]) -> None:
-        """
-        @brief 从步骤中提取关键命令、输出与分析信息。
-        @param step 单步执行数据。
-        @return None。
-        """
+        """@brief 从步骤中提取关键命令、输出与分析信息。"""
         if "tool_calls" in step and step["tool_calls"]:
             tool_call_summary = []
             for index, tool_call in enumerate(step["tool_calls"], 1):
@@ -138,33 +156,32 @@ class Memory:
     def compress_memory(self) -> None:
         """
         @brief 调用 LLM 压缩历史并生成结构化记忆块。
-        @return None。
         """
-        logger.info("优化记忆压缩中...")
+        logger.info("上下文占用达到 %.0f%%，开始压缩记忆...", self.compression_ratio * 100)
         if not self.history:
             return
 
-        prompt = """
-                "你是一个专业的CTF解题助手，需要压缩解题历史记录。请执行以下任务：\n"
-                "1. 识别并提取关键的技术细节和发现\n"
-                "2. 标记已尝试但失败的解决方案\n"
-                "3. 总结当前解题状态和下一步建议\n"
-                "4. 以JSON格式返回以下结构的数据：\n"
-                "{\n"
-                '  "key_findings": ["发现1", "发现2"],\n'
-                '  "failed_attempts": ["命令1", "命令2"],\n'
-                '  "current_status": "当前状态描述",\n'
-                    '  "next_steps": ["建议1", "建议2"]\n'
-                    "}\n\n"
-                "历史记录:\n"
-                """
+        prompt = (
+            "你是一个专业的CTF解题助手，需要压缩解题历史记录。请执行以下任务：\n"
+            "1. 识别并提取关键的技术细节和发现\n"
+            "2. 标记已尝试但失败的解决方案\n"
+            "3. 总结当前解题状态和下一步建议\n"
+            "4. 以JSON格式返回以下结构的数据：\n"
+            "{\n"
+            '  "key_findings": ["发现1", "发现2"],\n'
+            '  "failed_attempts": ["命令1", "命令2"],\n'
+            '  "current_status": "当前状态描述",\n'
+            '  "next_steps": ["建议1", "建议2"]\n'
+            "}\n\n"
+            "历史记录:\n"
+        )
 
         prompt += "关键事实摘要:\n"
         for _, value in list(self.key_facts.items())[-5:]:
             prompt += f"- {value}\n"
 
         for index, step in enumerate(
-            self.history[-self.compression_threshold :]
+            self.history[-len(self.history):]
         ):
             prompt += f"\n步骤 {index + 1}:\n"
             prompt += f"- 目的: {step.get('think', '未指定')}\n"
@@ -210,7 +227,7 @@ class Memory:
 
             key_findings = compressed_data.get("key_findings", [])
             finding_count = len(key_findings) if isinstance(key_findings, list) else 0
-            print(f"记忆压缩成功: 添加了{finding_count}个关键发现")
+            logger.info("记忆压缩成功: 添加了%d个关键发现", finding_count)
 
         except (json.JSONDecodeError, KeyError, TypeError):
             fallback = response_content.strip() if response_content else "压缩失败"
@@ -221,7 +238,7 @@ class Memory:
                 }
             )
         except Exception as error:
-            print(f"记忆压缩失败: {str(error)}")
+            logger.error("记忆压缩失败: %s", error)
             self.compressed_memory.append(
                 {
                     "error": f"压缩失败: {str(error)}",
@@ -229,43 +246,41 @@ class Memory:
                 }
             )
 
-        keep_last = min(4, len(self.history))
-        self.history = self.history[-keep_last:]
+        # 压缩后清除详细历史，仅靠 compressed_memory + key_facts 提供摘要
+        self.history = []
+
+        # 压缩后再次检查是否需要继续压缩
+        if self._should_compress():
+            keep_last = min(2, len(self.compressed_memory))
+            self.compressed_memory = self.compressed_memory[-keep_last:]
 
     def to_dict(self) -> Dict[str, Any]:
-        """
-        @brief 导出当前记忆状态为字典。
-        @return 序列化后的记忆状态。
-        """
+        """@brief 导出当前记忆状态为字典。"""
         return {
             "history": self.history,
             "compressed_memory": self.compressed_memory,
             "key_facts": self.key_facts,
             "failed_attempts": self.failed_attempts,
-            "compression_threshold": self.compression_threshold,
+            "context_window": self.context_window,
+            "compression_ratio": self.compression_ratio,
         }
 
     def restore_from_dict(self, data: Dict[str, Any]) -> None:
-        """
-        @brief 从字典恢复记忆状态。
-        @param data 序列化后的记忆状态。
-        @return None。
-        """
+        """@brief 从字典恢复记忆状态。"""
         self.history = data.get("history", [])
         self.compressed_memory = data.get("compressed_memory", [])
         self.key_facts = data.get("key_facts", {})
         self.failed_attempts = data.get("failed_attempts", {})
-        self.compression_threshold = data.get(
-            "compression_threshold",
-            self.compression_threshold,
+        self.context_window = data.get(
+            "context_window", self.context_window
         )
+        self.compression_ratio = data.get(
+            "compression_ratio", self.compression_ratio
+        )
+        self._token_limit = int(self.context_window * self.compression_ratio)
 
     def get_summary(self, include_key_facts: bool = True) -> str:
-        """
-        @brief 生成综合记忆摘要文本。
-        @param include_key_facts 是否包含关键事实部分。
-        @return 面向后续推理的摘要字符串。
-        """
+        """@brief 生成综合记忆摘要文本。"""
         summary = ""
 
         if include_key_facts and self.key_facts:

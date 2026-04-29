@@ -3,6 +3,7 @@ import inspect
 import json
 import logging
 import os
+import re
 from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 import json_repair
@@ -111,33 +112,234 @@ class ToolUtils:
         return self.tools, all_configs
 
     @staticmethod
+    def format_tools_for_prompt(function_configs: List[Dict[str, Any]]) -> str:
+        """
+        @brief 将工具配置列表转为提示词可用的文本描述。
+
+        @param function_configs 工具函数配置列表。
+        @return 格式化的工具描述文本。
+        """
+        if not function_configs:
+            return "无可用工具"
+
+        lines: List[str] = []
+        for index, config in enumerate(function_configs, 1):
+            func = config.get("function", {})
+            name = func.get("name", "未知工具")
+            desc = func.get("description", "无描述")
+            params = func.get("parameters", {}).get("properties", {})
+            required = func.get("parameters", {}).get("required", [])
+
+            lines.append(f"{index}. {name}")
+            lines.append(f"   描述: {desc}")
+            if params:
+                lines.append("   参数:")
+                for param_name, param_info in params.items():
+                    param_type = param_info.get("type", "string")
+                    param_desc = param_info.get("description", "")
+                    is_required = "必填" if param_name in required else "可选"
+                    lines.append(
+                        f"     - {param_name} ({param_type}, {is_required}): {param_desc}"
+                    )
+            lines.append("")
+
+        return "\n".join(lines)
+
+    @staticmethod
     def parse_tool_response(response: Any) -> List[Dict[str, Any]]:
         """
-        @brief 统一解析工具调用响应。
+        @brief 从 LLM 文本响应中解析工具调用列表。
 
         @details
-        当前仅支持从 response.choices[0].message.tool_calls 中读取工具调用。
+        支持从 message.content 文本中的 JSON 代码块提取 tool_calls 数组。
+        向后兼容原生的 message.tool_calls 解析方式。
 
         @param response LLM 原始响应对象。
         @return 工具调用列表，每项包含 tool_name 与 arguments。
         """
         message = response.choices[0].message
-        tool_calls: List[Dict[str, Any]] = []
 
-        if not (hasattr(message, "tool_calls") and message.tool_calls):
-            logger.warning("未检测到 message.tool_calls")
+        # 优先尝试原生 tool_calls（兼容模式）
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            tool_calls: List[Dict[str, Any]] = []
+            for tool_call in message.tool_calls:
+                func_name = tool_call.function.name
+                raw_arguments = tool_call.function.arguments
+                try:
+                    args = json_repair.loads(raw_arguments)
+                except json.JSONDecodeError as error:
+                    repaired = fix_json_with_llm(raw_arguments, str(error))
+                    args = json_repair.loads(repaired)
+                tool_calls.append({"tool_name": func_name, "arguments": args})
+            return tool_calls
+
+        # 从文本内容中解析
+        content = message.content
+        if not content:
+            logger.warning("消息内容为空，无法解析工具调用")
             return []
 
-        for tool_call in message.tool_calls:
-            func_name = tool_call.function.name
-            raw_arguments = tool_call.function.arguments
-            try:
-                args = json_repair.loads(raw_arguments)
-            except json.JSONDecodeError as error:
-                repaired = fix_json_with_llm(raw_arguments, str(error))
-                args = json_repair.loads(repaired)
+        content_str = content if isinstance(content, str) else str(content)
 
-            tool_calls.append({"tool_name": func_name, "arguments": args})
+        # 尝试从 XML 块中提取
+        xml_str = ToolUtils._extract_xml_block(content_str)
+        if xml_str:
+            return ToolUtils._parse_tool_calls_from_xml(xml_str)
+
+        # 回退：尝试 JSON 代码块
+        json_str = ToolUtils._extract_json_block(content_str)
+        if json_str:
+            return ToolUtils._parse_tool_calls_from_json(json_str)
+
+        # 最后尝试整个内容作为 JSON
+        return ToolUtils._parse_tool_calls_from_json(content_str)
+
+    @staticmethod
+    def _extract_xml_block(text: str) -> Optional[str]:
+        """
+        @brief 从文本中提取 <tool_calls> XML 块。
+
+        @param text 原始文本。
+        @return 提取到的 XML 字符串，失败返回 None。
+        """
+        pattern = r"<tool_calls>\s*(.*?)\s*</tool_calls>"
+        matches = re.findall(pattern, text, re.DOTALL)
+        if matches:
+            return f"<tool_calls>{matches[-1]}</tool_calls>"
+        return None
+
+    @staticmethod
+    def _parse_tool_calls_from_xml(xml_str: str) -> List[Dict[str, Any]]:
+        """
+        @brief 从 XML 字符串中解析 tool_calls。
+
+        支持的 XML 格式：
+        <tool_calls>
+          <tool_call name="工具名">
+            <arg key="参数名">参数值</arg>
+          </tool_call>
+        </tool_calls>
+
+        @param xml_str XML 字符串。
+        @return 工具调用列表。
+        """
+        tool_calls: List[Dict[str, Any]] = []
+
+        # 尝试用 xml.etree 解析
+        try:
+            import xml.etree.ElementTree as ET
+
+            root = ET.fromstring(xml_str)
+            for tc_elem in root.findall("tool_call"):
+                tool_name = tc_elem.get("name", "")
+                arguments: Dict[str, Any] = {}
+                for arg_elem in tc_elem.findall("arg"):
+                    key = arg_elem.get("key", "")
+                    value = arg_elem.text or ""
+                    if key:
+                        arguments[key] = value
+                if tool_name:
+                    tool_calls.append({
+                        "tool_name": tool_name,
+                        "arguments": arguments,
+                    })
+        except Exception:
+            logger.debug("xml.etree 解析失败，尝试正则回退")
+            tool_calls = ToolUtils._parse_tool_calls_from_xml_regex(xml_str)
+
+        for tool_call in tool_calls:
+            logger.info("使用工具: %s", tool_call.get("tool_name"))
+            logger.info("参数: %s", tool_call.get("arguments"))
+
+        return tool_calls
+
+    @staticmethod
+    def _parse_tool_calls_from_xml_regex(xml_str: str) -> List[Dict[str, Any]]:
+        """
+        @brief 正则回退解析 XML 格式的 tool_calls。
+        """
+        tool_calls: List[Dict[str, Any]] = []
+
+        # 匹配每个 <tool_call name="...">...</tool_call>
+        tc_pattern = r"<tool_call\s+name\s*=\s*\"(.*?)\">(.*?)</tool_call>"
+        for match in re.finditer(tc_pattern, xml_str, re.DOTALL):
+            tool_name = match.group(1)
+            inner = match.group(2)
+            arguments: Dict[str, Any] = {}
+
+            # 匹配 <arg key="...">...</arg>
+            arg_pattern = r"<arg\s+key\s*=\s*\"(.*?)\">(.*?)</arg>"
+            for arg_match in re.finditer(arg_pattern, inner, re.DOTALL):
+                key = arg_match.group(1)
+                value = arg_match.group(2)
+                arguments[key] = value
+
+            if tool_name:
+                tool_calls.append({
+                    "tool_name": tool_name,
+                    "arguments": arguments,
+                })
+
+        return tool_calls
+
+    @staticmethod
+    def _extract_json_block(text: str) -> Optional[str]:
+        """
+        @brief 从文本中提取 JSON 代码块。
+
+        @param text 原始文本。
+        @return 提取到的 JSON 字符串，失败返回 None。
+        """
+        # 匹配 ```json ... ``` 代码块
+        pattern = r"```json\s*\n(.*?)\n```"
+        matches = re.findall(pattern, text, re.DOTALL)
+        if matches:
+            return matches[-1]
+
+        # 匹配 ``` ... ``` 代码块
+        pattern = r"```\s*\n(.*?)\n```"
+        matches = re.findall(pattern, text, re.DOTALL)
+        if matches:
+            return matches[-1]
+
+        return None
+
+    @staticmethod
+    def _parse_tool_calls_from_json(json_str: str) -> List[Dict[str, Any]]:
+        """
+        @brief 从 JSON 字符串中解析 tool_calls 数组。
+
+        @param json_str JSON 字符串。
+        @return 工具调用列表。
+        """
+        tool_calls: List[Dict[str, Any]] = []
+        try:
+            data = json_repair.loads(json_str)
+        except json.JSONDecodeError as error:
+            repaired = fix_json_with_llm(json_str, str(error))
+            try:
+                data = json_repair.loads(repaired)
+            except Exception:
+                logger.warning("JSON修复后仍无法解析: %s", repaired[:200])
+                return []
+
+        if not isinstance(data, dict):
+            logger.warning("解析结果不是字典类型")
+            return []
+
+        raw_tool_calls = data.get("tool_calls", [])
+        if not isinstance(raw_tool_calls, list):
+            logger.warning("tool_calls 不是数组类型")
+            return []
+
+        for tool_call in raw_tool_calls:
+            if not isinstance(tool_call, dict):
+                continue
+            func_name = tool_call.get("tool_name", "")
+            arguments = tool_call.get("arguments", {})
+            if not isinstance(arguments, dict):
+                arguments = {}
+            tool_calls.append({"tool_name": func_name, "arguments": arguments})
 
         for tool_call in tool_calls:
             logger.info("使用工具: %s", tool_call.get("tool_name"))

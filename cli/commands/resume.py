@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 import typer
 
 from cli.commands.solve import solve_command
@@ -18,11 +16,6 @@ def resume_command(
         "--show-think/--hide-think",
         help="是否显示思考摘要",
     ),
-    attachments_dir: Optional[str] = typer.Option(
-        None,
-        "--attachments-dir",
-        help="覆盖附件目录",
-    ),
 ) -> None:
     """优先从存档恢复执行。"""
     solve_command(
@@ -31,7 +24,6 @@ def resume_command(
         auto=auto,
         manual=manual,
         resume=True,
-        attachments_dir=attachments_dir,
         show_think=show_think,
         plain=plain,
     )

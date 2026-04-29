@@ -96,14 +96,12 @@ class RichPromptToolkitInterface(UserInterface):
         self,
         mode_text: str,
         question_source: str,
-        attachments_dir: str,
         checkpoint_status: str,
     ) -> None:
         """显示启动信息面板。"""
         panel_text = (
             f"模式: {mode_text}\n"
             f"题目来源: {question_source}\n"
-            f"附件目录: {attachments_dir}\n"
             f"存档: {checkpoint_status}"
         )
         self.console.print(
@@ -143,9 +141,20 @@ class RichPromptToolkitInterface(UserInterface):
         choice = self._prompt_choice("请选择模式 (1/2): ", ["1", "2"], default="1")
         return choice == "1"
 
-    def input_question_ready(self, prompt: str) -> None:
-        """等待用户确认题目已准备。"""
-        self._prompt(prompt)
+    def input_question(self, prompt: str) -> str:
+        """获取用户多行输入的题目文本。输入空行结束。"""
+        self.console.print(f"[cyan]{prompt}[/cyan]")
+        self.console.print("[dim]（输入空行结束）[/dim]")
+        lines = []
+        while True:
+            try:
+                line = self._prompt("")
+            except EOFError:
+                break
+            if not line.strip() and lines:
+                break
+            lines.append(line)
+        return "\n".join(lines)
 
     def display_message(self, message: str) -> None:
         """根据消息内容进行轻量级分级渲染。"""

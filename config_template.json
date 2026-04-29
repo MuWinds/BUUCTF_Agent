@@ -4,8 +4,8 @@
         "api_key": "",
         "api_base": "https://api.openai.com/v1"
     },
-    "max_history_steps": 15,
-    "compression_threshold": 7,
+    "context_window": 128000,
+    "compression_ratio": 0.8,
     "checkpoint_dir": "./checkpoints",
     "tool_config": {
         "bash_shell": {
@@ -20,8 +20,7 @@
     "platform": {
         "inputer": {
             "type": "file",
-            "file_path": "./question.txt",
-            "attachment_dir": "./attachments"
+            "file_path": "./question.txt"
         },
         "submitter": {
             "type": "manual"

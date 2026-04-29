@@ -3,6 +3,7 @@
 """
 
 import logging
+import re
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
@@ -50,8 +51,8 @@ class SolveAgent:
         self.env = Environment(loader=FileSystemLoader("."))
 
         self.memory = Memory(
-            max_steps=self.config.get("max_history_steps", 10),
-            compression_threshold=self.config.get("compression_threshold", 5),
+            context_window=self.config.get("context_window", 128000),
+            compression_ratio=self.config.get("compression_ratio", 0.8),
         )
 
         self.tools: Dict[str, BaseTool] = {}
@@ -233,7 +234,8 @@ class SolveAgent:
     @staticmethod
     def _extract_think(message_content: object) -> str:
         """
-        @brief 从模型消息中提取思考文本。
+        @brief 从模型消息中提取思考文本（去除 JSON 代码块）。
+
         @param message_content 模型返回的 message.content。
         @return 清洗后的思考文本。
         """
@@ -241,9 +243,16 @@ class SolveAgent:
             return "未返回思考内容（仅返回工具调用）"
 
         if isinstance(message_content, str):
-            think = message_content.strip()
+            content_str = message_content
         else:
-            think = str(message_content).strip()
+            content_str = str(message_content)
+
+        # 移除 XML 工具调用块和 Markdown 代码块，保留思考内容
+        cleaned = re.sub(r"<tool_calls>.*?</tool_calls>", "", content_str, flags=re.DOTALL)
+        cleaned = re.sub(r"```json\s*\n.*?\n```", "", cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r"```xml\s*\n.*?\n```", "", cleaned, flags=re.DOTALL)
+        cleaned = re.sub(r"```\s*\n.*?\n```", "", cleaned, flags=re.DOTALL)
+        think = cleaned.strip()
 
         return think or "未返回思考内容（仅返回工具调用）"
 
@@ -252,7 +261,8 @@ class SolveAgent:
         prompt: str,
     ) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
         """
-        @brief 请求模型返回思考内容与原生工具调用计划。
+        @brief 请求模型返回思考内容与工具调用计划（基于提示词而非原生 tool call）。
+
         @param prompt 给模型的提示词。
         @return (思考内容, 工具调用列表)；失败返回 None。
         """
@@ -260,11 +270,9 @@ class SolveAgent:
             response = self.solve_llm.text_completion(
                 prompt=prompt,
                 json_check=False,
-                tools=self.function_configs,
-                tool_choice="required",
             )
         except Exception as error:
-            logger.error("调用LLM原生工具失败: %s", error)
+            logger.error("调用LLM失败: %s", error)
             return None
 
         think_content = self._extract_think(
@@ -274,16 +282,14 @@ class SolveAgent:
         if tool_calls:
             return think_content, tool_calls
 
-        logger.warning("LLM未返回tool_calls，重试一次")
+        logger.warning("LLM未返回有效tool_calls，重试一次")
         try:
             retry_response = self.solve_llm.text_completion(
                 prompt=prompt,
                 json_check=False,
-                tools=self.function_configs,
-                tool_choice="required",
             )
         except Exception as error:
-            logger.error("重试原生工具调用失败: %s", error)
+            logger.error("重试LLM调用失败: %s", error)
             return None
 
         retry_think = self._extract_think(
@@ -293,7 +299,7 @@ class SolveAgent:
         if retry_tool_calls:
             return retry_think, retry_tool_calls
 
-        logger.error("连续两次未返回tool_calls")
+        logger.error("连续两次未返回有效tool_calls")
         return None
 
     def next_instruction(self) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
@@ -302,12 +308,13 @@ class SolveAgent:
         @return (思考内容, 工具调用列表)；失败返回 None。
         """
         history_summary = self.memory.get_summary()
+        tools_text = ToolUtils.format_tools_for_prompt(self.function_configs)
 
         template = self.env.from_string(self.prompt.get("think_next", ""))
         think_prompt = template.render(
             question=self.problem,
             history_summary=history_summary,
-            tools=self.function_configs,
+            tools_text=tools_text,
         )
 
         result = self._request_tool_plan(think_prompt)
@@ -330,6 +337,7 @@ class SolveAgent:
         @return (新思考, 新工具调用列表)；失败返回 None。
         """
         history_summary = self.memory.get_summary()
+        tools_text = ToolUtils.format_tools_for_prompt(self.function_configs)
 
         template = self.env.from_string(self.prompt.get("reflection", ""))
         reflection_prompt = template.render(
@@ -337,7 +345,7 @@ class SolveAgent:
             history_summary=history_summary,
             original_purpose=think,
             feedback=feedback,
-            tools=self.function_configs,
+            tools_text=tools_text,
         )
 
         result = self._request_tool_plan(reflection_prompt)

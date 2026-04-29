@@ -70,7 +70,11 @@ cp config_template.json config.json
 }
 ```
 
-注意：本项目仅对接 OpenAI API（或 OpenAI 兼容接口）。
+**API 兼容性说明：** 本项目通过 OpenAI Python SDK 进行 LLM 调用，仅支持 [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat) 格式的接口。以下服务可直接使用：
+- OpenAI（GPT-4o 等）
+- 任何兼容 OpenAI API 格式的服务（DeepSeek、Moonshot、vLLM、Ollama、one-api 等），通过修改 `api_base` 即可接入
+
+不支持原生非 OpenAI 格式的服务（如 Anthropic Claude 原生 API、Google Gemini API）。
 
 ### 5) 运行
 

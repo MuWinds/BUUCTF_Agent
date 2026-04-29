@@ -7,7 +7,7 @@ import logging
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from agent.checkpoint import CheckpointManager
 from ctf_platform import Question, create_inputer, create_submitter
@@ -67,58 +67,42 @@ def setup_logging() -> None:
 
 def build_question_from_text(
     content: str,
-    attachment_dir: str = "./attachments",
 ) -> Question:
     """基于文本构造题目对象。"""
-    attachments: List[str] = []
-    if os.path.isdir(attachment_dir):
-        for file_name in os.listdir(attachment_dir):
-            path = os.path.join(attachment_dir, file_name)
-            if os.path.isfile(path):
-                attachments.append(path)
-
     return Question(
         title="",
         content=content,
-        attachments=attachments,
     )
 
 
-def load_question_from_file(path: str, attachment_dir: str = "./attachments") -> Question:
+def load_question_from_file(path: str) -> Question:
     """从文件读取题目内容。"""
     with open(path, "r", encoding="utf-8") as file:
         content = file.read()
-    return build_question_from_text(content, attachment_dir=attachment_dir)
+    return build_question_from_text(content)
 
 
 def resolve_question(
     config: Dict[str, Any],
     question_text: Optional[str],
     question_file: Optional[str],
-    attachment_dir_override: Optional[str],
     user_interface: UserInterface,
 ) -> Tuple[str, Question, str]:
     """解析题目来源并返回 (problem, question_obj, source_text)。"""
-    platform_config = config.get("platform", {})
-    inputer_config = platform_config.get("inputer", {"type": "file"})
-    attachment_dir = inputer_config.get("attachment_dir", "./attachments")
-    if attachment_dir_override:
-        attachment_dir = attachment_dir_override
-
     if question_text:
-        question = build_question_from_text(question_text, attachment_dir=attachment_dir)
+        question = build_question_from_text(question_text)
         return question.content, question, "命令参数 --question"
 
     if question_file:
-        question = load_question_from_file(question_file, attachment_dir=attachment_dir)
+        question = load_question_from_file(question_file)
         return question.content, question, str(Path(question_file))
 
-    # 未显式传参时沿用原逻辑：提示用户后按 inputer 配置读取
-    inputer = create_inputer(inputer_config)
-    user_interface.display_message("如题目中含有附件，可放到项目根目录的attachments文件夹下")
-    user_interface.input_question_ready("将题目文本放在Agent根目录下的question.txt回车以结束")
-    question = inputer.fetch_question()
-    return question.content, question, inputer_config.get("file_path", "./question.txt")
+    # 未显式传参时使用多行输入
+    content = user_interface.input_question("请输入题目文本：")
+    if not content.strip():
+        raise ValueError("题目内容不能为空")
+    question = build_question_from_text(content)
+    return question.content, question, "CLI 多行输入"
 
 
 def load_checkpoint_for_solve(

@@ -44,11 +44,6 @@ def solve_command(
         "--resume/--no-resume",
         help="是否尝试恢复存档",
     ),
-    attachments_dir: Optional[str] = typer.Option(
-        None,
-        "--attachments-dir",
-        help="覆盖附件目录",
-    ),
     show_think: bool = typer.Option(
         True,
         "--show-think/--hide-think",
@@ -94,7 +89,6 @@ def solve_command(
         config=config,
         question_text=question,
         question_file=question_file,
-        attachment_dir_override=attachments_dir,
         user_interface=ui,
     )
 
@@ -104,7 +98,6 @@ def solve_command(
         ui.display_startup(
             mode_text=mode_text,
             question_source=source,
-            attachments_dir=attachments_dir or "./attachments",
             checkpoint_status=ckpt_status,
         )
 
