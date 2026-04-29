@@ -15,6 +15,7 @@ from agent.checkpoint import CheckpointManager
 from agent.memory import Memory
 from config import Config
 from ctf_tool.base_tool import BaseTool
+from skill.manager import SkillManager
 from utils.llm_request import LLMRequest
 from utils.tools import ToolUtils
 from utils.user_interface import ApprovedStep, UserInterface
@@ -63,6 +64,9 @@ class SolveAgent:
 
         self.tool = ToolUtils()
         self.tools, self.function_configs = self.tool.load_tools()
+
+        skill_paths = self.config.get("skills", {}).get("paths", [])
+        self.skill_manager = SkillManager(extra_paths=skill_paths)
 
         self.auto_mode = self.user_interface.select_mode()
 
@@ -309,12 +313,14 @@ class SolveAgent:
         """
         history_summary = self.memory.get_summary()
         tools_text = ToolUtils.format_tools_for_prompt(self.function_configs)
+        skills_text = self.skill_manager.format_for_prompt()
 
         template = self.env.from_string(self.prompt.get("think_next", ""))
         think_prompt = template.render(
             question=self.problem,
             history_summary=history_summary,
             tools_text=tools_text,
+            skills_text=skills_text,
         )
 
         result = self._request_tool_plan(think_prompt)
@@ -338,6 +344,7 @@ class SolveAgent:
         """
         history_summary = self.memory.get_summary()
         tools_text = ToolUtils.format_tools_for_prompt(self.function_configs)
+        skills_text = self.skill_manager.format_for_prompt()
 
         template = self.env.from_string(self.prompt.get("reflection", ""))
         reflection_prompt = template.render(
@@ -346,6 +353,7 @@ class SolveAgent:
             original_purpose=think,
             feedback=feedback,
             tools_text=tools_text,
+            skills_text=skills_text,
         )
 
         result = self._request_tool_plan(reflection_prompt)

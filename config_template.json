@@ -7,6 +7,9 @@
     "context_window": 128000,
     "compression_ratio": 0.8,
     "checkpoint_dir": "./checkpoints",
+    "skills": {
+        "paths": []
+    },
     "tool_config": {
         "bash_shell": {
             "shell_path": "bash",

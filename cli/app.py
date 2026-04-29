@@ -7,6 +7,7 @@ import typer
 from cli.commands.checkpoint import app as checkpoint_app
 from cli.commands.config_cmd import app as config_app
 from cli.commands.resume import resume_command
+from cli.commands.skill import app as skill_app
 from cli.commands.solve import solve_command
 from cli.commands.tools import app as tools_app
 
@@ -20,6 +21,7 @@ app.command("solve")(solve_command)
 app.command("resume")(resume_command)
 app.add_typer(checkpoint_app, name="checkpoint")
 app.add_typer(config_app, name="config")
+app.add_typer(skill_app, name="skill")
 app.add_typer(tools_app, name="tools")
 
 
