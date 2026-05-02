@@ -85,7 +85,7 @@ def solve_command(
         ui=ui,
     )
 
-    problem, question_data, source = resolve_question(
+    _problem, question_data, source = resolve_question(
         config=config,
         question_text=question,
         question_file=question_file,
@@ -105,10 +105,13 @@ def solve_command(
         result = run_workflow(
             config=config,
             user_interface=ui,
-            problem=problem,
             question=question_data,
             resume_data=resume_data,
         )
+    except KeyboardInterrupt:
+        console = Console(no_color=plain, force_terminal=not plain)
+        console.print("\n[yellow]已中断，进度已保存。[/yellow]")
+        raise typer.Exit(0)
     except ModuleNotFoundError as error:
         raise typer.BadParameter(
             f"缺少运行依赖: {error.name}，请先执行 `pip install -r requirements.txt`"

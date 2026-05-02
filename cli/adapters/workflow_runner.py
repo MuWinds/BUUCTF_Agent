@@ -18,6 +18,14 @@ class HTTPRequestToDebugFilter(logging.Filter):
     """将 HTTP 请求日志降级为 DEBUG。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """过滤日志记录，将 HTTP 请求日志降级为 DEBUG。
+
+        Args:
+            record: 日志记录对象。
+
+        Returns:
+            始终返回 True，允许所有日志通过。
+        """
         if record.name in {"httpx", "httpcore"}:
             message = record.getMessage()
             if (
@@ -68,7 +76,14 @@ def setup_logging() -> None:
 def build_question_from_text(
     content: str,
 ) -> Question:
-    """基于文本构造题目对象。"""
+    """基于文本构造题目对象。
+
+    Args:
+        content: 题目文本内容。
+
+    Returns:
+        构造好的 Question 对象。
+    """
     return Question(
         title="",
         content=content,
@@ -97,7 +112,18 @@ def resolve_question(
         question = load_question_from_file(question_file)
         return question.content, question, str(Path(question_file))
 
-    # 未显式传参时使用多行输入
+    # 尝试使用配置的 inputer 获取题目
+    platform_config = config.get("platform", {})
+    inputer_config = platform_config.get("inputer", {})
+    inputer_type = inputer_config.get("type", "file")
+
+    if inputer_type != "file":
+        inputer = create_inputer(inputer_config)
+        question = inputer.fetch_question()
+        source = f"平台输入器 ({inputer_type})"
+        return question.content, question, source
+
+    # file 类型或未配置 inputer 时使用多行输入
     content = user_interface.input_question("请输入题目文本：")
     if not content.strip():
         raise ValueError("题目内容不能为空")
@@ -155,7 +181,6 @@ def load_checkpoint_file(
 def run_workflow(
     config: Dict[str, Any],
     user_interface: UserInterface,
-    problem: str,
     question: Question,
     resume_data: Optional[Dict[str, Any]],
 ) -> str:
@@ -176,7 +201,6 @@ def run_workflow(
         submitter=submitter,
     )
     return workflow.solve(
-        problem,
+        question,
         resume_data=resume_data,
-        question=question,
     )

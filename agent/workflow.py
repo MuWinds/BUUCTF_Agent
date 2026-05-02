@@ -1,10 +1,7 @@
-"""
-@brief 解题流程编排模块。
-"""
+"""解题流程编排模块。"""
 
 import logging
-import os
-from typing import Optional
+from typing import Callable, Optional
 
 import yaml
 
@@ -17,11 +14,12 @@ from utils.user_interface import UserInterface
 
 logger = logging.getLogger(__name__)
 
+# 解题结束回调签名：(question, result) -> None
+OnQuestionDone = Callable[[Question, str], None]
+
 
 class Workflow:
-    """
-    @brief 负责衔接题目预处理、解题代理与 flag 提交流程。
-    """
+    """负责衔接题目预处理、解题代理与 flag 提交流程。"""
 
     def __init__(
         self,
@@ -29,14 +27,21 @@ class Workflow:
         user_interface: UserInterface,
         inputer: Optional[QuestionInputer] = None,
         submitter: Optional[FlagSubmitter] = None,
+        inputer_config: Optional[dict] = None,
+        submitter_config: Optional[dict] = None,
     ) -> None:
-        """
-        @brief 初始化流程编排对象。
-        @param config 全局配置字典。
-        @param user_interface 用户交互接口实现。
-        @param inputer 题目输入器。
-        @param submitter flag 提交器。
-        @raises ValueError 当配置为空时抛出。
+        """初始化流程编排对象。
+
+        Args:
+            config: 全局配置字典。
+            user_interface: 用户交互接口实现。
+            inputer: 题目输入器。
+            submitter: flag 提交器。
+            inputer_config: 输入器配置（覆盖 config 中的 platform.inputer）。
+            submitter_config: 提交器配置（覆盖 config 中的 platform.submitter）。
+
+        Raises:
+            ValueError: 当配置为空时抛出。
         """
         self.config = config
         self.processor_llm = LLMRequest("solve_agent")
@@ -49,30 +54,31 @@ class Workflow:
 
         platform_config = config.get("platform", {})
         self.inputer = inputer or create_inputer(
-            platform_config.get("inputer", {"type": "file"})
+            inputer_config or platform_config.get("inputer", {"type": "file"})
         )
         self.submitter = submitter or create_submitter(
-            platform_config.get("submitter", {"type": "manual"}),
+            submitter_config or platform_config.get("submitter", {"type": "manual"}),
             user_interface=self.user_interface,
         )
         self.current_question: Optional[Question] = None
+        self.on_question_done: Optional[OnQuestionDone] = None
 
     def solve(
         self,
-        problem: str,
+        question: Question,
         resume_data: Optional[dict] = None,
-        question: Optional[Question] = None,
     ) -> str:
-        """
-        @brief 执行完整解题流程。
-        @param problem 原始题目文本。
-        @param resume_data 可选存档恢复数据。
-        @param question 当前题目对象。
-        @return 解题结果字符串。
+        """执行单题解题流程。
+
+        Args:
+            question: 题目对象（含题目文本、靶机地址等完整信息）。
+            resume_data: 可选存档恢复数据。
+
+        Returns:
+            解题结果字符串。
         """
         self.current_question = question
-
-        problem = self.summary_problem(problem)
+        problem = self.summary_problem(question.content)
 
         self.agent = SolveAgent(problem, user_interface=self.user_interface)
         self.agent.confirm_flag_callback = self.confirm_flag
@@ -85,13 +91,20 @@ class Workflow:
             )
 
         result = self.agent.solve(resume_step=resume_step)
+
+        if self.on_question_done is not None:
+            self.on_question_done(question, result)
+
         return result
 
     def confirm_flag(self, flag_candidate: str) -> bool:
-        """
-        @brief 通过提交器验证候选 flag。
-        @param flag_candidate 候选 flag 字符串。
-        @return 验证成功返回 True，否则返回 False。
+        """通过提交器验证候选 flag。
+
+        Args:
+            flag_candidate: 候选 flag 字符串。
+
+        Returns:
+            验证成功返回 True，否则返回 False。
         """
         question = self.current_question
         if question is None:
@@ -102,10 +115,13 @@ class Workflow:
         return result.success
 
     def summary_problem(self, problem: str) -> str:
-        """
-        @brief 对题目进行必要摘要。
-        @param problem 原始题目描述。
-        @return 处理后的题目文本。
+        """对题目进行必要摘要。
+
+        Args:
+            problem: 原始题目描述。
+
+        Returns:
+            处理后的题目文本。
         """
         if len(problem) < 256:
             return problem

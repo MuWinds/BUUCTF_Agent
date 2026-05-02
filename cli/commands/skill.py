@@ -36,15 +36,12 @@ def list_command() -> None:
 
     table = Table(title="可用 Skill 列表")
     table.add_column("名称", style="cyan")
-    table.add_column("标签", style="green")
     table.add_column("描述", style="white")
     table.add_column("位置", style="dim")
 
     for skill in skills:
-        tags_str = ", ".join(skill.tags) if skill.tags else "-"
         table.add_row(
             skill.name,
-            tags_str,
             skill.description,
             skill.location,
         )
@@ -70,8 +67,6 @@ def show_command(
     # 使用 typer.echo 输出，自动处理编码
     typer.echo(f"Skill: {skill.name}")
     typer.echo(f"位置: {skill.location}")
-    if skill.tags:
-        typer.echo(f"标签: {', '.join(skill.tags)}")
     typer.echo(f"\n{skill.description}\n")
 
     if skill.content:

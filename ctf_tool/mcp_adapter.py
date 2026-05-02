@@ -1,4 +1,4 @@
-"""@brief MCP 服务器工具适配器实现。"""
+"""MCP 服务器工具适配器实现。"""
 
 import asyncio
 import atexit
@@ -16,12 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 class MCPServerAdapter(BaseTool):
-    """@brief 适配 MCP 服务端工具到统一工具接口。"""
+    """适配 MCP 服务端工具到统一工具接口。"""
 
     def __init__(self, server_config: Dict[str, Any]):
-        """@brief 初始化 MCP 适配器并建立连接。
+        """初始化 MCP 适配器并建立连接。
 
-        @param server_config MCP 服务配置。
+        Args:
+            server_config: MCP 服务配置。
         """
         super().__init__()
         self.server_name = server_config["name"]
@@ -38,7 +39,7 @@ class MCPServerAdapter(BaseTool):
         atexit.register(self._cleanup)
 
     async def _initialize_server(self) -> None:
-        """@brief 初始化服务器连接。"""
+        """初始化服务器连接。"""
         if self.communication_mode == "stdio" and "command" in self.server_config:
             await self._connect_stdio_server()
         elif self.communication_mode == "http" and "url" in self.server_config:
@@ -50,9 +51,10 @@ class MCPServerAdapter(BaseTool):
             logger.error("不支持的通信模式或缺少必要配置: %s", self.communication_mode)
 
     async def _connect_stdio_server(self) -> None:
-        """@brief 连接到 stdio 模式的 MCP 服务器。
+        """连接到 stdio 模式的 MCP 服务器。
 
-        @raises RuntimeError 连接失败时抛出。
+        Raises:
+            RuntimeError: 连接失败时抛出。
         """
         command = self.server_config["command"]
         args = self.server_config.get("args", [])
@@ -86,7 +88,7 @@ class MCPServerAdapter(BaseTool):
             raise RuntimeError(f"无法连接MCP服务器: {str(error)}") from error
 
     async def _load_http_tools(self) -> None:
-        """@brief 通过 HTTP 加载工具列表。"""
+        """通过 HTTP 加载工具列表。"""
         if not self.base_url:
             logger.error("无法加载工具: 未指定服务URL")
             return
@@ -109,7 +111,7 @@ class MCPServerAdapter(BaseTool):
             logger.error("加载MCP工具失败: %s", str(error))
 
     async def _load_stdio_tools(self) -> None:
-        """@brief 通过 stdio 加载工具列表。"""
+        """通过 stdio 加载工具列表。"""
         if not self.session:
             logger.error("无法加载工具: 未连接到stdio服务")
             return
@@ -132,9 +134,10 @@ class MCPServerAdapter(BaseTool):
             logger.error("加载MCP工具失败: %s", str(error))
 
     def _process_tools_info(self, tools_info: List[Dict[str, Any]]) -> None:
-        """@brief 处理并缓存工具信息。
+        """处理并缓存工具信息。
 
-        @param tools_info 工具信息列表。
+        Args:
+            tools_info: 工具信息列表。
         """
         for tool_info in tools_info:
             tool_name = f"{tool_info['name']}"
@@ -144,11 +147,14 @@ class MCPServerAdapter(BaseTool):
             }
 
     def execute(self, tool_name: str, arguments: Dict[str, Any]) -> Tuple[str, str]:
-        """@brief 执行 MCP 服务器上的工具。
+        """执行 MCP 服务器上的工具。
 
-        @param tool_name 工具名。
-        @param arguments 工具参数。
-        @return Tuple[str, str] 标准输出与错误输出。
+        Args:
+            tool_name: 工具名。
+            arguments: 工具参数。
+
+        Returns:
+            标准输出与错误输出。
         """
         if tool_name not in self.tools:
             return "", f"错误：未知的MCP工具 '{tool_name}'"
@@ -160,11 +166,14 @@ class MCPServerAdapter(BaseTool):
         tool_name: str,
         arguments: Dict[str, Any],
     ) -> Tuple[str, str]:
-        """@brief 内部异步执行入口。
+        """内部异步执行入口。
 
-        @param tool_name 工具名。
-        @param arguments 工具参数。
-        @return Tuple[str, str] 标准输出与错误输出。
+        Args:
+            tool_name: 工具名。
+            arguments: 工具参数。
+
+        Returns:
+            标准输出与错误输出。
         """
         if self.communication_mode == "http":
             return await self._execute_http(tool_name, arguments)
@@ -178,11 +187,14 @@ class MCPServerAdapter(BaseTool):
         tool_name: str,
         arguments: Dict[str, Any],
     ) -> Tuple[str, str]:
-        """@brief 通过 HTTP 执行工具。
+        """通过 HTTP 执行工具。
 
-        @param tool_name 工具名。
-        @param arguments 工具参数。
-        @return Tuple[str, str] 标准输出与错误输出。
+        Args:
+            tool_name: 工具名。
+            arguments: 工具参数。
+
+        Returns:
+            标准输出与错误输出。
         """
         try:
             import requests
@@ -212,11 +224,14 @@ class MCPServerAdapter(BaseTool):
         tool_name: str,
         arguments: Dict[str, Any],
     ) -> Tuple[str, str]:
-        """@brief 通过 stdio 执行工具。
+        """通过 stdio 执行工具。
 
-        @param tool_name 工具名。
-        @param arguments 工具参数。
-        @return Tuple[str, str] 标准输出与错误输出。
+        Args:
+            tool_name: 工具名。
+            arguments: 工具参数。
+
+        Returns:
+            标准输出与错误输出。
         """
         if not self.session:
             return "", "错误：未连接到stdio服务"
@@ -230,16 +245,18 @@ class MCPServerAdapter(BaseTool):
 
     @property
     def function_config(self) -> Dict[str, Any]:
-        """@brief 返回适配器自身函数配置。
+        """返回适配器自身函数配置。
 
-        @return Dict[str, Any] 适配器函数配置。
+        Returns:
+            适配器函数配置。
         """
         return {}
 
     def get_tool_configs(self) -> List[Dict[str, Any]]:
-        """@brief 为每个 MCP 工具生成函数配置。
+        """为每个 MCP 工具生成函数配置。
 
-        @return List[Dict[str, Any]] 工具函数配置列表。
+        Returns:
+            工具函数配置列表。
         """
         configs: List[Dict[str, Any]] = []
         for tool_name, tool_info in self.tools.items():
@@ -261,5 +278,5 @@ class MCPServerAdapter(BaseTool):
         return configs
 
     def _cleanup(self) -> None:
-        """@brief 清理资源并关闭事件循环。"""
+        """清理资源并关闭事件循环。"""
         self.loop.close()

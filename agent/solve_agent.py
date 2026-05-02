@@ -1,6 +1,4 @@
-"""
-@brief 解题主代理模块。
-"""
+"""解题主代理模块。"""
 
 import logging
 import re
@@ -24,20 +22,21 @@ logger = logging.getLogger(__name__)
 
 
 class SolveAgent:
-    """
-    @brief 负责逐步生成、执行并分析解题动作。
-    """
+    """负责逐步生成、执行并分析解题动作。"""
 
     def __init__(
         self,
         problem: str,
         user_interface: UserInterface,
     ) -> None:
-        """
-        @brief 初始化解题代理。
-        @param problem 当前题目文本。
-        @param user_interface 用户交互接口实现。
-        @raises ValueError 当配置文件缺失时抛出。
+        """初始化解题代理。
+
+        Args:
+            problem: 当前题目文本。
+            user_interface: 用户交互接口实现。
+
+        Raises:
+            ValueError: 当配置文件缺失时抛出。
         """
         self.config = Config.load_config()
         self.solve_llm = LLMRequest("solve_agent")
@@ -77,114 +76,121 @@ class SolveAgent:
         )
 
     def solve(self, resume_step: int = 0) -> str:
-        """
-        @brief 主解题循环，逐步调用工具并分析输出。
-        @param resume_step 恢复时的起始步骤编号。
-        @return 最终 flag 或终止原因说明。
+        """主解题循环，逐步调用工具并分析输出。
+
+        Args:
+            resume_step: 恢复时的起始步骤编号。
+
+        Returns:
+            最终 flag 或终止原因说明。
         """
         step_count = resume_step
 
-        while True:
-            step_count += 1
-            self.user_interface.display_message(f"\n正在思考第 {step_count} 步...")
+        try:
+            while True:
+                step_count += 1
+                self.user_interface.display_message(f"\n正在思考第 {step_count} 步...")
 
-            if not self.function_configs:
-                self.user_interface.display_message("当前没有可用工具，无法继续解题")
-                return "未找到flag：无可用工具"
+                if not self.function_configs:
+                    self.user_interface.display_message("当前没有可用工具，无法继续解题")
+                    return "未找到flag：无可用工具"
 
-            next_step = None
-            while next_step is None:
-                next_step = self.next_instruction()
-                if next_step:
-                    think, tool_calls = next_step
-                    break
-                self.user_interface.display_message("生成执行内容失败，10秒后重试...")
-                time.sleep(10)
+                next_step = None
+                while next_step is None:
+                    next_step = self.next_instruction()
+                    if next_step:
+                        think, tool_calls = next_step
+                        break
+                    self.user_interface.display_message("生成执行内容失败，10秒后重试...")
+                    time.sleep(10)
 
-            if next_step is None:
-                self.user_interface.display_message("生成执行内容失败")
-                return "解题终止"
-
-            think, tool_calls = next_step
-            if not self.auto_mode:
-                approved, approved_step = self.manual_approval_step(next_step)
-                if not approved or approved_step is None:
-                    self.user_interface.display_message("用户终止解题")
+                if next_step is None:
+                    self.user_interface.display_message("生成执行内容失败")
                     return "解题终止"
-                think, tool_calls = approved_step
 
-            self.memory.add_planned_step(step_count, think, tool_calls)
-            all_tool_results, combined_raw_output = ToolUtils.execute_tools(
-                tools=self.tools,
-                tool_calls=tool_calls,
-                display_message=self.user_interface.display_message,
-            )
+                think, tool_calls = next_step
+                if not self.auto_mode:
+                    approved, approved_step = self.manual_approval_step(next_step)
+                    if not approved or approved_step is None:
+                        self.user_interface.display_message("用户终止解题")
+                        return "解题终止"
+                    think, tool_calls = approved_step
 
-            output_summary = ToolUtils.output_summary(
-                tool_results=all_tool_results,
-                think=think,
-                tool_output=combined_raw_output,
-            )
-
-            logger.info(
-                "工具输出摘要（共%s个工具）:\n%s",
-                len(all_tool_results),
-                output_summary,
-            )
-
-            analysis_result: Dict[str, Any] = (
-                self.analyzer.analyze_step_output(
-                    self.memory,
-                    str(step_count),
-                    output_summary,
-                    think,
+                self.memory.add_planned_step(step_count, think, tool_calls)
+                all_tool_results, combined_raw_output = ToolUtils.execute_tools(
+                    tools=self.tools,
+                    tool_calls=tool_calls,
+                    display_message=self.user_interface.display_message,
                 )
-            )
 
-            if analysis_result.get("flag_found", False):
-                flag_value = analysis_result.get("flag")
-                flag_candidate = flag_value if isinstance(flag_value, str) else ""
-                logger.info("LLM报告发现flag: %s", flag_candidate)
+                analysis_result: Dict[str, Any] = (
+                    self.analyzer.analyze_step_output(
+                        self.memory,
+                        str(step_count),
+                        combined_raw_output,
+                        think,
+                    )
+                )
 
-                if self.confirm_flag_callback and self.confirm_flag_callback(
-                    flag_candidate
-                ):
+                if analysis_result.get("flag_found", False):
+                    flag_value = analysis_result.get("flag")
+                    flag_candidate = flag_value if isinstance(flag_value, str) else ""
+                    logger.info("LLM报告发现flag: %s", flag_candidate)
+
+                    if self.confirm_flag_callback and self.confirm_flag_callback(
+                        flag_candidate
+                    ):
+                        self.checkpoint_manager.delete(self.problem)
+                        return flag_candidate
+                    logger.info("用户确认flag不正确，继续解题")
+
+                tool_results_with_args = [
+                    {
+                        "tool_name": r.get("tool_name"),
+                        "arguments": r.get("arguments", {}),
+                        "output": str(r.get("raw_output", "")),
+                    }
+                    for r in all_tool_results
+                ]
+
+                self.memory.update_step(
+                    step_count,
+                    {
+                        "tool_results": tool_results_with_args,
+                        "analysis": analysis_result,
+                        "status": "executed",
+                    },
+                )
+
+                self.checkpoint_manager.save(
+                    problem=self.problem,
+                    step_count=step_count,
+                    auto_mode=self.auto_mode,
+                    memory_data=self.memory.to_dict(),
+                )
+
+                if analysis_result.get("terminate", False):
+                    self.user_interface.display_message("LLM建议提前终止解题")
                     self.checkpoint_manager.delete(self.problem)
-                    return flag_candidate
-                logger.info("用户确认flag不正确，继续解题")
-
-            self.memory.update_step(
-                step_count,
-                {
-                    "tool_args": (
-                        tool_calls[0].get("arguments", {})
-                        if tool_calls
-                        else {}
-                    ),
-                    "output": output_summary,
-                    "raw_outputs": combined_raw_output,
-                    "analysis": analysis_result,
-                    "status": "executed",
-                },
-            )
-
+                    return "未找到flag：提前终止"
+        except KeyboardInterrupt:
+            self.user_interface.display_message("\n用户中断，正在保存进度...")
             self.checkpoint_manager.save(
                 problem=self.problem,
                 step_count=step_count,
                 auto_mode=self.auto_mode,
                 memory_data=self.memory.to_dict(),
             )
-
-            if analysis_result.get("terminate", False):
-                self.user_interface.display_message("LLM建议提前终止解题")
-                self.checkpoint_manager.delete(self.problem)
-                return "未找到flag：提前终止"
+            return "用户中断"
 
     def restore_from_checkpoint(self, data: Dict[str, Any]) -> int:
-        """
-        @brief 从存档恢复代理状态。
-        @param data 存档管理器读取到的存档数据。
-        @return 恢复后的 step_count。
+        """从存档恢复代理状态。
+
+        Args:
+            data: 存档管理器读取到的存档数据。
+
+        Returns:
+            恢复后的 step_count。
         """
         memory_data = data.get("memory")
         if isinstance(memory_data, dict):
@@ -201,18 +207,24 @@ class SolveAgent:
         self,
         next_step: Tuple[str, List[Dict[str, Any]]],
     ) -> Tuple[bool, Optional[ApprovedStep]]:
-        """
-        @brief 手动模式下处理用户批准、反馈与终止。
-        @param next_step 候选步骤，包含思考和工具调用。
-        @return (是否批准, 最终步骤数据)。
+        """手动模式下处理用户批准、反馈与终止。
+
+        Args:
+            next_step: 候选步骤，包含思考和工具调用。
+
+        Returns:
+            (是否批准, 最终步骤数据)。
         """
         while True:
             think, tool_calls = next_step
 
-            approved, data = self.user_interface.manual_approval_step(
-                think,
-                tool_calls,
-            )
+            try:
+                approved, data = self.user_interface.manual_approval_step(
+                    think,
+                    tool_calls,
+                )
+            except KeyboardInterrupt:
+                return False, None
 
             if approved:
                 if data is not None and len(data) == 2:
@@ -237,11 +249,13 @@ class SolveAgent:
 
     @staticmethod
     def _extract_think(message_content: object) -> str:
-        """
-        @brief 从模型消息中提取思考文本（去除 JSON 代码块）。
+        """从模型消息中提取思考文本（去除 JSON 代码块）。
 
-        @param message_content 模型返回的 message.content。
-        @return 清洗后的思考文本。
+        Args:
+            message_content: 模型返回的 message.content。
+
+        Returns:
+            清洗后的思考文本。
         """
         if message_content is None:
             return "未返回思考内容（仅返回工具调用）"
@@ -264,11 +278,13 @@ class SolveAgent:
         self,
         prompt: str,
     ) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
-        """
-        @brief 请求模型返回思考内容与工具调用计划（基于提示词而非原生 tool call）。
+        """请求模型返回思考内容与工具调用计划（基于提示词而非原生 tool call）。
 
-        @param prompt 给模型的提示词。
-        @return (思考内容, 工具调用列表)；失败返回 None。
+        Args:
+            prompt: 给模型的提示词。
+
+        Returns:
+            (思考内容, 工具调用列表)；失败返回 None。
         """
         try:
             response = self.solve_llm.text_completion(
@@ -307,9 +323,10 @@ class SolveAgent:
         return None
 
     def next_instruction(self) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
-        """
-        @brief 生成下一步执行计划。
-        @return (思考内容, 工具调用列表)；失败返回 None。
+        """生成下一步执行计划。
+
+        Returns:
+            (思考内容, 工具调用列表)；失败返回 None。
         """
         history_summary = self.memory.get_summary()
         tools_text = ToolUtils.format_tools_for_prompt(self.function_configs)
@@ -336,11 +353,14 @@ class SolveAgent:
         think: str,
         feedback: str,
     ) -> Optional[Tuple[str, List[Dict[str, Any]]]]:
-        """
-        @brief 根据用户反馈重新生成步骤计划。
-        @param think 原始思考目的。
-        @param feedback 用户反馈。
-        @return (新思考, 新工具调用列表)；失败返回 None。
+        """根据用户反馈重新生成步骤计划。
+
+        Args:
+            think: 原始思考目的。
+            feedback: 用户反馈。
+
+        Returns:
+            (新思考, 新工具调用列表)；失败返回 None。
         """
         history_summary = self.memory.get_summary()
         tools_text = ToolUtils.format_tools_for_prompt(self.function_configs)

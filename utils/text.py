@@ -8,11 +8,14 @@ logger = logging.getLogger(__name__)
 
 
 def fix_json_with_llm(json_str: str, err_content: str) -> str:
-    """
-    @brief 使用 LLM 修复格式错误的 JSON 字符串。
-    @param json_str 格式错误的 JSON 字符串。
-    @param err_content 解析时的错误信息。
-    @return 修复后的有效 JSON 字符串。
+    """使用 LLM 修复格式错误的 JSON 字符串。
+
+    Args:
+        json_str: 格式错误的 JSON 字符串。
+        err_content: 解析时的错误信息。
+
+    Returns:
+        修复后的有效 JSON 字符串。
     """
     from utils.llm_request import LLMRequest
 
@@ -37,15 +40,16 @@ def fix_json_with_llm(json_str: str, err_content: str) -> str:
 
 
 def optimize_text(text: str) -> str:
-    """
-    @brief 缩减 Prompt 中的重复空白字符。
+    """缩减 Prompt 中的重复空白字符。
 
-    @details
     将连续重复的同类空白字符（空格、换行、制表符等）压缩为单个字符，
     并移除首尾空白。
 
-    @param text 待优化文本。
-    @return 优化后的文本。
+    Args:
+        text: 待优化文本。
+
+    Returns:
+        优化后的文本。
     """
     text = re.sub(r"(\s)\1+", r"\1", text)
     return text.strip()

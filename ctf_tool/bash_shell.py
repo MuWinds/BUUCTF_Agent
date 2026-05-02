@@ -1,4 +1,4 @@
-"""@brief 提供本地 Bash 命令执行工具。"""
+"""提供本地 Bash 命令执行工具。"""
 
 import logging
 import os
@@ -13,10 +13,10 @@ logger = logging.getLogger(__name__)
 
 
 class BashShell(BaseTool):
-    """@brief 在本地 Bash 环境执行 Shell 命令。"""
+    """在本地 Bash 环境执行 Shell 命令。"""
 
     def __init__(self) -> None:
-        """@brief 初始化 Bash 工具配置。"""
+        """初始化 Bash 工具配置。"""
         try:
             shell_config: Dict[str, Any] = Config.get_tool_config("bash_shell")
         except (KeyError, ValueError):
@@ -45,11 +45,14 @@ class BashShell(BaseTool):
         self.extra_env = env_value if isinstance(env_value, dict) else {}
 
     def execute(self, tool_name: str, arguments: Dict[str, Any]) -> str:
-        """@brief 执行本地 Bash 命令。
+        """执行本地 Bash 命令。
 
-        @param tool_name 工具名（当前实现不直接使用）。
-        @param arguments 参数字典，需包含 content。
-        @return str 执行结果文本。
+        Args:
+            tool_name: 工具名（当前实现不直接使用）。
+            arguments: 参数字典，需包含 content。
+
+        Returns:
+            执行结果文本。
         """
         del tool_name
 
@@ -104,7 +107,11 @@ class BashShell(BaseTool):
             return f"命令执行错误: {str(error)}"
 
     def _resolve_shell_executable(self) -> Optional[str]:
-        """@brief 解析并校验 Bash 可执行路径。"""
+        """解析并校验 Bash 可执行路径。
+
+        Returns:
+            可执行的 Bash 路径，未找到时返回 None。
+        """
         if os.path.isabs(self.shell_path):
             return self.shell_path if os.path.isfile(self.shell_path) else None
 
@@ -122,7 +129,11 @@ class BashShell(BaseTool):
 
     @staticmethod
     def _find_git_bash() -> Optional[str]:
-        """@brief 在 Windows 常见目录中查找 Git Bash。"""
+        """在 Windows 常见目录中查找 Git Bash。
+
+        Returns:
+            Git Bash 可执行文件路径，未找到时返回 None。
+        """
         candidates = [
             r"C:\Program Files\Git\bin\bash.exe",
             r"C:\Program Files\Git\usr\bin\bash.exe",
@@ -137,7 +148,11 @@ class BashShell(BaseTool):
 
     @property
     def function_config(self) -> Dict[str, Any]:
-        """@brief 返回工具函数配置。"""
+        """返回工具函数配置。
+
+        Returns:
+            函数调用配置字典。
+        """
         return {
             "type": "function",
             "function": {

@@ -5,7 +5,30 @@
       "Bash(conda env:*)",
       "Bash(conda run:*)",
       "Bash(\"C:/Users/MuWinds/.conda/envs/ctf-agent/python.exe\":*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(echo '{\"current_dir\":\"C:\\\\\\\\Users\\\\\\\\MuWinds\\\\\\\\Documents\\\\\\\\Coding Project\\\\\\\\github\\\\\\\\BUUCTF_Agent\"}')",
+      "Bash(sed 's/\"current_dir\"[[:space:]]*:[[:space:]]*\"//')",
+      "Bash(sed 's/\"//')",
+      "Bash(tr '/' '\\\\\\\\')",
+      "Bash(echo '{\"display_name\":\"claude-opus-4\",\"session_name\":\"test-session\",\"remaining_percentage\":75.5,\"current_dir\":\"C:\\\\\\\\Users\\\\\\\\MuWinds\\\\\\\\Documents\\\\\\\\Coding Project\\\\\\\\github\\\\\\\\BUUCTF_Agent\"}')",
+      "Bash(bash \"C:/Users/MuWinds/.claude/statusline-command.sh\")",
+      "Bash(cat)",
+      "Bash(chmod +x /tmp/statusline-debug.sh)",
+      "Bash(echo '{\"display_name\":\"mimo-v2.5-pro\",\"session_name\":\"test-session\",\"remaining_percentage\":75.5,\"current_dir\":\"C:\\\\\\\\Users\\\\\\\\MuWinds\\\\\\\\Documents\\\\\\\\Coding Project\\\\\\\\github\\\\\\\\BUUCTF_Agent\"}')",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(d.get\\('display_name',''\\)\\)\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(echo '{\"display_name\":\"test\",\"current_dir\":\"C:\\\\\\\\Users\\\\\\\\MuWinds\\\\\\\\Documents\"}')",
+      "Bash(printf '{\"display_name\":\"mimo-v2.5-pro\",\"session_name\":\"test-session\",\"remaining_percentage\":75.5,\"current_dir\":\"C:\\\\\\\\\\\\\\\\Users\\\\\\\\\\\\\\\\MuWinds\\\\\\\\\\\\\\\\Documents\\\\\\\\\\\\\\\\Coding Project\\\\\\\\\\\\\\\\github\\\\\\\\\\\\\\\\BUUCTF_Agent\"}')",
+      "Read(//c/Users/MuWinds/Documents/Coding Project/github/XBOW_Benchmark_Web//**)",
+      "Read(//c/Users/MuWinds/Documents/Coding Project/github/XBOW_Benchmark_Web/**)",
+      "Bash(curl -s \"http://10.0.0.53:8000/api/v1/tests/nCICtcpN/challenges\")",
+      "Bash(pip install *)",
+      "Bash(curl *)",
+      "Bash(xargs -I {} ls -la {}/)",
+      "Bash(python3 *)",
+      "Bash(conda activate *)",
+      "Bash(C:/Users/MuWinds/.conda/envs/ctf-agent/python.exe *)"
     ]
   }
 }

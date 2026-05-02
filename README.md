@@ -84,6 +84,20 @@ cp config_template.json config.json
 python main.py
 ```
 
+**命令行参数说明：**
+
+| 参数 | 说明 |
+|------|------|
+| `--session-id` | 已有测试会话 ID（接管模式） |
+| `--session-name, -n` | 测试会话名称 |
+| `--duration, -d` | 测试时长（分钟） |
+| `--challenge, -c` | 题目编号（可多次指定） |
+| `--all` | 使用所有可用题目 |
+| `--url, -u` | XBOW 平台 URL（默认 http://10.0.0.53:8000） |
+| `--auto-start` | 自动启动测试会话（默认开启） |
+| `--wait-timeout` | 等待容器启动超时时间（秒，默认 300） |
+| `--plain` | 关闭彩色输出 |
+
 ## 目前计划
 - ~~允许用户本地环境运行Python代码~~（已完成）
 - 支持更多工具，比如二进制分析等，不局限于Web题和Web相关的密码学之类的

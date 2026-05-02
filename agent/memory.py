@@ -1,6 +1,4 @@
-"""
-@brief 解题过程记忆管理模块。
-"""
+"""解题过程记忆管理模块。"""
 
 import json
 import logging
@@ -16,10 +14,8 @@ logger = logging.getLogger(__name__)
 
 
 class Memory:
-    """
-    @brief 管理解题历史、关键事实与压缩记忆。
+    """管理解题历史、关键事实与压缩记忆。
 
-    @details
     基于 token 估算的上下文占用率触发压缩：
     当 get_summary() 的估算 token 数 >= context_window * compression_ratio 时自动压缩。
     """
@@ -29,10 +25,11 @@ class Memory:
         context_window: int = 128000,
         compression_ratio: float = 0.8,
     ) -> None:
-        """
-        @brief 初始化记忆对象。
-        @param context_window 模型上下文窗口大小（token 数）。
-        @param compression_ratio 触发压缩的上下文占用比例。
+        """初始化记忆对象。
+
+        Args:
+            context_window: 模型上下文窗口大小（token 数）。
+            compression_ratio: 触发压缩的上下文占用比例。
         """
         self.config = Config.load_config()
         self.solve_llm = LLMRequest("solve_agent")
@@ -47,27 +44,23 @@ class Memory:
 
     @staticmethod
     def _estimate_tokens(text: str) -> int:
-        """
-        @brief 简单估算文本的 token 数量（约 4 字符/token）。
-        """
+        """简单估算文本的 token 数量（约 4 字符/token）。"""
         return max(1, len(text) // 4)
 
     def _current_usage_tokens(self) -> int:
-        """
-        @brief 估算当前 get_summary() 会占据的 token 数。
-        """
+        """估算当前 get_summary() 会占据的 token 数。"""
         summary = self.get_summary()
         return self._estimate_tokens(summary)
 
     def _should_compress(self) -> bool:
-        """
-        @brief 判断当前上下文占用是否达到压缩阈值。
-        """
+        """判断当前上下文占用是否达到压缩阈值。"""
         return self._current_usage_tokens() >= self._token_limit
 
     def add_step(self, step: Dict[str, Any]) -> None:
-        """
-        @brief 添加执行步骤并在 token 超限时触发压缩。
+        """添加执行步骤并在 token 超限时触发压缩。
+
+        Args:
+            step: 步骤数据字典，包含工具调用、结果与分析等信息。
         """
         self.history.append(step)
 
@@ -97,8 +90,12 @@ class Memory:
         think: str,
         tool_calls: List[Dict[str, Any]],
     ) -> None:
-        """
-        @brief 记录尚未执行的计划步骤，token 超限时触发压缩。
+        """记录尚未执行的计划步骤，token 超限时触发压缩。
+
+        Args:
+            step_num: 步骤编号。
+            think: 当前步骤的思考内容。
+            tool_calls: 工具调用列表。
         """
         self.history.append(
             {
@@ -113,8 +110,11 @@ class Memory:
             self.compress_memory()
 
     def update_step(self, step_num: int, fields: Dict[str, Any]) -> None:
-        """
-        @brief 按步骤号更新历史记录并在 token 超限时触发压缩。
+        """按步骤号更新历史记录并在 token 超限时触发压缩。
+
+        Args:
+            step_num: 要更新的步骤编号。
+            fields: 需要更新的字段字典。
         """
         for index in range(len(self.history) - 1, -1, -1):
             step = self.history[index]
@@ -126,27 +126,29 @@ class Memory:
             self.compress_memory()
 
     def _extract_key_facts(self, step: Dict[str, Any]) -> None:
-        """@brief 从步骤中提取关键命令、输出与分析信息。"""
-        if "tool_calls" in step and step["tool_calls"]:
+        """从步骤中提取关键命令、输出与分析信息。
+
+        Args:
+            step: 步骤数据字典。
+        """
+        if "tool_results" in step and step["tool_results"]:
+            pairs = []
+            for index, tr in enumerate(step["tool_results"], 1):
+                name = tr.get("tool_name", "未知工具")
+                args = tr.get("arguments", {})
+                output = str(tr.get("output", ""))
+                short_out = output
+                pairs.append(f"{index}. {name}({args}) → {short_out}")
+            self.key_facts["tool_results"] = "\n".join(pairs)
+        elif "tool_calls" in step and step["tool_calls"]:
             tool_call_summary = []
             for index, tool_call in enumerate(step["tool_calls"], 1):
                 tool_name = tool_call.get("tool_name", "未知工具")
                 args = tool_call.get("arguments", {})
                 tool_call_summary.append(f"{index}. {tool_name}({args})")
-
             self.key_facts["tool_calls"] = (
                 f"工具调用: {', '.join(tool_call_summary)}"
             )
-        elif "tool_args" in step and step["tool_args"]:
-            command = str(step["tool_args"])
-            self.key_facts["command"] = f"命令: {command}"
-
-        if "output" in step:
-            output = step["output"]
-            output_summary = output[:256] + (
-                "..." if len(output) > 256 else ""
-            )
-            self.key_facts["output_summary"] = f"输出摘要: {output_summary}"
 
         if "analysis" in step and "analysis" in step["analysis"]:
             analysis = step["analysis"]["analysis"]
@@ -154,9 +156,7 @@ class Memory:
                 self.key_facts[f"finding:{hash(analysis)}"] = analysis
 
     def compress_memory(self) -> None:
-        """
-        @brief 调用 LLM 压缩历史并生成结构化记忆块。
-        """
+        """调用 LLM 压缩历史并生成结构化记忆块。"""
         logger.info("上下文占用达到 %.0f%%，开始压缩记忆...", self.compression_ratio * 100)
         if not self.history:
             return
@@ -185,15 +185,19 @@ class Memory:
         ):
             prompt += f"\n步骤 {index + 1}:\n"
             prompt += f"- 目的: {step.get('think', '未指定')}\n"
-            if step.get("tool_calls"):
+            if "tool_results" in step and step["tool_results"]:
+                for i, tr in enumerate(step["tool_results"], 1):
+                    name = tr.get("tool_name", "未知工具")
+                    args = tr.get("arguments", {})
+                    output = str(tr.get("output", ""))
+                    prompt += f"- 工具{i}: {name}({args}) → {output}\n"
+            elif step.get("tool_calls"):
                 tool_call_list = []
                 for tool_call in step.get("tool_calls", []):
                     name = tool_call.get("tool_name", "未知工具")
                     args = tool_call.get("arguments", {})
                     tool_call_list.append(f"{name}({args})")
                 prompt += f"- 命令: {', '.join(tool_call_list)}\n"
-            else:
-                prompt += f"- 命令: {step.get('tool_args', {})}\n"
 
             if "analysis" in step:
                 analysis = step["analysis"].get("analysis", "无分析")
@@ -255,7 +259,11 @@ class Memory:
             self.compressed_memory = self.compressed_memory[-keep_last:]
 
     def to_dict(self) -> Dict[str, Any]:
-        """@brief 导出当前记忆状态为字典。"""
+        """导出当前记忆状态为字典。
+
+        Returns:
+            包含历史、压缩记忆、关键事实等字段的字典。
+        """
         return {
             "history": self.history,
             "compressed_memory": self.compressed_memory,
@@ -266,7 +274,11 @@ class Memory:
         }
 
     def restore_from_dict(self, data: Dict[str, Any]) -> None:
-        """@brief 从字典恢复记忆状态。"""
+        """从字典恢复记忆状态。
+
+        Args:
+            data: 由 to_dict 导出的记忆状态字典。
+        """
         self.history = data.get("history", [])
         self.compressed_memory = data.get("compressed_memory", [])
         self.key_facts = data.get("key_facts", {})
@@ -280,7 +292,14 @@ class Memory:
         self._token_limit = int(self.context_window * self.compression_ratio)
 
     def get_summary(self, include_key_facts: bool = True) -> str:
-        """@brief 生成综合记忆摘要文本。"""
+        """生成综合记忆摘要文本。
+
+        Args:
+            include_key_facts: 是否在摘要中包含关键事实。
+
+        Returns:
+            综合记忆摘要字符串。
+        """
         summary = ""
 
         if include_key_facts and self.key_facts:
@@ -319,22 +338,23 @@ class Memory:
                 step_num = len(self.history) - index
                 summary += f"步骤 {step_num}:\n"
                 summary += f"- 目的: {step.get('think', '未指定')}\n"
-                if step.get("tool_calls"):
+
+                if "tool_results" in step and step["tool_results"]:
+                    for i, tr in enumerate(step["tool_results"], 1):
+                        name = tr.get("tool_name", "未知工具")
+                        args = tr.get("arguments", {})
+                        output = str(tr.get("output", ""))
+                        summary += f"- 工具{i}: {name}({args})\n"
+                        summary += (
+                            f"  输出: {output}\n"
+                        )
+                elif step.get("tool_calls"):
                     tool_call_list = []
                     for tool_call in step.get("tool_calls", []):
                         name = tool_call.get("tool_name", "未知工具")
                         args = tool_call.get("arguments", {})
                         tool_call_list.append(f"{name}({args})")
                     summary += f"- 命令: {', '.join(tool_call_list)}\n"
-                else:
-                    summary += f"- 命令: {step.get('tool_args', {})}\n"
-
-                if "output" in step:
-                    output = step["output"]
-                    summary += (
-                        f"- 输出: {output[:512]}"
-                        f"{'...' if len(output) > 512 else ''}\n"
-                    )
 
                 if "analysis" in step:
                     analysis = step["analysis"].get("analysis", "无分析")
