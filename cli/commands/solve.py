@@ -29,16 +29,6 @@ def solve_command(
         "--question",
         help="直接传入题目文本",
     ),
-    auto: bool = typer.Option(
-        False,
-        "--auto",
-        help="自动模式（等价于选择模式 1）",
-    ),
-    manual: bool = typer.Option(
-        False,
-        "--manual",
-        help="手动模式（等价于选择模式 2）",
-    ),
     resume: bool = typer.Option(
         True,
         "--resume/--no-resume",
@@ -52,7 +42,7 @@ def solve_command(
     show_think: bool = typer.Option(
         True,
         "--show-think/--hide-think",
-        help="是否显示手动审批中的思考摘要",
+        help="是否显示思考过程",
     ),
     plain: bool = typer.Option(
         False,
@@ -60,23 +50,14 @@ def solve_command(
         help="关闭彩色输出，回退为基础命令行交互",
     ),
 ) -> None:
-    """启动解题流程（交互 / 非交互）。"""
-    if auto and manual:
-        raise typer.BadParameter("--auto 与 --manual 不能同时指定")
-
+    """启动自主解题流程。"""
     setup_logging()
     config = Config.load_config()
-
-    forced_mode = None
-    if auto:
-        forced_mode = True
-    if manual:
-        forced_mode = False
 
     ui = RichPromptToolkitInterface(
         plain=plain,
         show_think=show_think,
-        forced_auto_mode=forced_mode,
+        forced_auto_mode=True,
         forced_resume=resume if not resume else None,
     )
 
@@ -99,10 +80,9 @@ def solve_command(
     )
 
     if isinstance(ui, RichPromptToolkitInterface):
-        mode_text = "自动(参数指定)" if auto else "手动(参数指定)" if manual else "交互选择"
         ckpt_status = "将尝试恢复" if resume else "不恢复"
         ui.display_startup(
-            mode_text=mode_text,
+            mode_text="自主模式",
             question_source=source,
             attachments_dir=attachments_dir or "./attachments",
             checkpoint_status=ckpt_status,
