@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -175,24 +176,109 @@ def run_workflow(
     question: Question,
     resume_data: Optional[Dict[str, Any]],
 ) -> str:
-    """执行 Workflow 主流程。"""
-    from agent.workflow import Workflow
+    """执行 Agent 自主解题流程。"""
+    import yaml
+    from jinja2 import Environment, BaseLoader
 
+    from agent.agent_core import run
+    from agent.checkpoint import CheckpointManager
+    from agent.skill import discover_skills
+    from ctf_platform.registry import create_submitter
+    from ctf_tool.load_skill import LoadSkillTool
+    from utils.llm_request import LLMRequest
+    from utils.tools import ToolUtils
+
+    # 加载系统提示模板
+    with open("./prompt/system_prompt.yaml", "r", encoding="utf-8") as f:
+        prompt_data = yaml.safe_load(f)
+
+    # 发现并加载 skills
+    skill_registry = discover_skills(config=config, project_dir=".")
+
+    # 加载工具（含 load_skill）
+    tool_utils = ToolUtils()
+    tools, tool_defs = tool_utils.load_tools()
+
+    # 注册 load_skill 工具
+    if skill_registry.skills:
+        load_skill_tool = LoadSkillTool(skill_registry)
+        tools["load_skill"] = load_skill_tool
+        tool_defs.append(load_skill_tool.function_config)
+        user_interface.display_message(
+            f"已加载 {len(skill_registry.skills)} 个 skills: "
+            + ", ".join(skill_registry.names())
+        )
+
+    if not tool_defs:
+        user_interface.display_message("当前没有可用工具，无法解题")
+        return "未找到flag：无可用工具"
+
+    # 渲染系统提示（注入 skills 列表）
+    env = Environment(loader=BaseLoader())
+    template = env.from_string(prompt_data["system_prompt"])
+    skills_info = [{"name": s.name, "description": s.description} for s in skill_registry.all()]
+    system_prompt = template.render(
+        question=problem,
+        tools=tool_defs,
+        skills=skills_info,
+    )
+
+    # 构建初始消息
+    if resume_data and "messages" in resume_data:
+        messages = resume_data["messages"]
+        user_interface.display_message("已恢复存档，继续解题")
+    else:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": problem},
+        ]
+
+    # 初始化 LLM
+    llm = LLMRequest("solve_agent")
+
+    # 初始化存档管理器
+    checkpoint_dir = config.get("checkpoint_dir", "./checkpoints")
+    checkpoint_mgr = CheckpointManager(checkpoint_dir=checkpoint_dir)
+
+    # 设置 flag 确认回调
     platform_config = config.get("platform", {})
-    inputer = create_inputer(platform_config.get("inputer", {"type": "file"}))
     submitter = create_submitter(
         platform_config.get("submitter", {"type": "manual"}),
         user_interface=user_interface,
     )
 
-    workflow = Workflow(
-        config=config,
-        user_interface=user_interface,
-        inputer=inputer,
-        submitter=submitter,
+    max_tool_output = config.get("max_tool_output", 8192)
+
+    # 运行 agent 循环
+    result = run(
+        messages=messages,
+        tools=tools,
+        tool_defs=tool_defs,
+        llm=llm,
+        on_message=user_interface.display_message,
+        checkpoint_mgr=checkpoint_mgr,
+        problem=problem,
+        max_tool_output=max_tool_output,
     )
-    return workflow.solve(
-        problem,
-        resume_data=resume_data,
-        question=question,
-    )
+
+    # 尝试提交 flag
+    if "flag{" in result.lower() or "FLAG_FOUND" in result:
+        flag_candidate = _extract_flag_from_result(result)
+        if flag_candidate:
+            submit_result = submitter.submit(flag_candidate, question)
+            if submit_result.success:
+                checkpoint_mgr.delete_latest()
+                return flag_candidate
+
+    return result
+
+
+def _extract_flag_from_result(result: str) -> Optional[str]:
+    """从结果字符串中提取 flag。"""
+    match = re.search(r"flag\{[^}]+\}", result, re.IGNORECASE)
+    if match:
+        return match.group(0)
+    match = re.search(r"FLAG_FOUND:\s*(.+)", result)
+    if match:
+        return match.group(1).strip()
+    return None
