@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
-import json
-from typing import Any, List, Optional
+from typing import List, Optional
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.rule import Rule
-from rich.table import Table
 from rich.text import Text
 
-from utils.user_interface import (
-    ManualApprovalStepData,
-    ToolCall,
-    UserInterface,
-)
+from utils.user_interface import UserInterface
 
 try:
     from prompt_toolkit import PromptSession
@@ -125,24 +119,6 @@ class RichPromptToolkitInterface(UserInterface):
         choice = self._prompt_choice("确认该 flag 正确？(y/n): ", ["y", "n"], default="y")
         return choice == "y"
 
-    def select_mode(self) -> bool:
-        """选择自动/手动模式。"""
-        if self.forced_auto_mode is not None:
-            mode_name = "自动模式" if self.forced_auto_mode else "手动模式"
-            self.render_info(f"已由命令参数指定：{mode_name}")
-            return self.forced_auto_mode
-
-        mode_table = Table(title="运行模式选择", show_header=True, header_style="bold magenta")
-        mode_table.add_column("编号", style="cyan", width=6)
-        mode_table.add_column("模式", style="white", width=10)
-        mode_table.add_column("说明", style="green")
-        mode_table.add_row("1", "自动", "自动执行全部步骤")
-        mode_table.add_row("2", "手动", "每一步均需人工审批")
-        self.console.print(mode_table)
-
-        choice = self._prompt_choice("请选择模式 (1/2): ", ["1", "2"], default="1")
-        return choice == "1"
-
     def input_question_ready(self, prompt: str) -> None:
         """等待用户确认题目已准备。"""
         self._prompt(prompt)
@@ -173,56 +149,6 @@ class RichPromptToolkitInterface(UserInterface):
 
         self.console.print(normalized)
 
-    def manual_approval(self, think: str, tool_calls: Any) -> tuple[bool, tuple[str, Any]]:
-        """兼容旧接口：审批并返回固定结构。"""
-        if self.show_think:
-            self.console.print(
-                Panel(think, title="思考摘要", border_style="cyan")
-            )
-
-        self.console.print(Panel(str(tool_calls), title="工具调用", border_style="blue"))
-        choice = self._prompt_choice("是否批准执行？(y/n): ", ["y", "n"], default="y")
-        return choice == "y", (think, tool_calls)
-
-    @staticmethod
-    def _args_preview(arguments: Any) -> str:
-        """将参数压缩为短文本。"""
-        preview = json.dumps(arguments, ensure_ascii=False)
-        return preview if len(preview) <= 120 else f"{preview[:117]}..."
-
-    def manual_approval_step(
-        self,
-        think: str,
-        tool_calls: List[ToolCall],
-    ) -> tuple[bool, ManualApprovalStepData]:
-        """手动模式完整审批流程。"""
-        if self.show_think:
-            self.console.print(
-                Panel(think, title="思考摘要", border_style="cyan")
-            )
-
-        tool_table = Table(title=f"计划调用工具 ({len(tool_calls)} 个)")
-        tool_table.add_column("#", style="cyan", width=4)
-        tool_table.add_column("工具名", style="green", width=30)
-        tool_table.add_column("参数摘要", style="white")
-        for index, tool_call in enumerate(tool_calls, start=1):
-            tool_table.add_row(
-                str(index),
-                str(tool_call.get("tool_name", "")),
-                self._args_preview(tool_call.get("arguments", {})),
-            )
-        self.console.print(tool_table)
-
-        self.console.print("[bold]审批动作:[/bold] [Enter/y] 批准  [f] 反馈  [q] 终止")
-        choice = self._prompt_choice("选择动作: ", ["", "y", "f", "q"], default="")
-
-        if choice in {"", "y"}:
-            return True, (think, tool_calls)
-        if choice == "f":
-            feedback = self._prompt("请提供改进建议: ").strip()
-            return False, (think, tool_calls, feedback)
-        return False, None
-
     def confirm_resume(self) -> bool:
         """确认是否恢复存档。"""
         if self.forced_resume is not None:
@@ -243,4 +169,3 @@ class RichPromptToolkitInterface(UserInterface):
             default="y",
         )
         return choice == "y"
-
