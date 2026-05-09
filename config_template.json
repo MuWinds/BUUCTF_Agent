@@ -4,8 +4,7 @@
         "api_key": "",
         "api_base": "https://api.openai.com/v1"
     },
-    "max_history_steps": 15,
-    "compression_threshold": 7,
+    "max_tool_output": 8192,
     "checkpoint_dir": "./checkpoints",
     "tool_config": {
         "bash_shell": {
@@ -17,6 +16,9 @@
         }
     },
     "mcp_server": {},
+    "skills": {
+        "paths": []
+    },
     "platform": {
         "inputer": {
             "type": "file",
