@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 
 from openai import OpenAI
 
@@ -79,6 +79,32 @@ class LLMRequest:
             model=self.llm_config["model"],
             messages=[{"role": "user", "content": optimize_text(prompt)}],
             **request_kwargs,
+        )
+        logger.debug("LLM Response Message: %s", response.choices[0].message.content)
+        return response
+
+    def chat_completion(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: str = "auto",
+    ) -> Any:
+        """
+        @brief 使用完整消息列表发起对话补全请求。
+        @param messages OpenAI 格式的消息列表。
+        @param tools 工具定义列表。
+        @param tool_choice 工具选择策略。
+        @return OpenAI 原始响应对象。
+        """
+        kwargs: Dict[str, Any] = {}
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+
+        response = self.client.chat.completions.create(
+            model=self.llm_config["model"],
+            messages=messages,
+            **kwargs,
         )
         logger.debug("LLM Response Message: %s", response.choices[0].message.content)
         return response
