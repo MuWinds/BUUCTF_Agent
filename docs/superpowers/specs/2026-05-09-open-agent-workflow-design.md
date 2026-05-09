@@ -27,6 +27,78 @@
 
 ## 架构设计
 
+### Skills 系统
+
+参考 OpenCode 的 skill 设计，为 agent 提供可扩展的专业技能加载机制。
+
+**核心思路**：每个 skill 是一个 Markdown 文件（`SKILL.md`），包含 YAML frontmatter 和专业指令内容。LLM 通过调用 `load_skill` 工具按需将技能知识加载到对话上下文中。
+
+#### Skill 文件格式
+
+```markdown
+---
+name: web-exploitation
+description: Web 安全漏洞利用技术，涵盖 SQL 注入、XSS、文件包含、命令注入等常见 Web 攻击手法
+---
+
+# Web 漏洞利用指南
+
+## SQL 注入
+...
+
+## XSS
+...
+```
+
+- `name`：技能名称，小写字母+数字+连字符，1-64 字符
+- `description`：技能描述，1-1024 字符，用于 LLM 判断是否需要加载
+- Markdown 正文：专业指令内容，加载后作为 LLM 的上下文知识
+
+#### 发现目录
+
+按优先级扫描以下目录中的 `*/SKILL.md`：
+
+1. 项目本地：`.buuctf_agent/skills/*/SKILL.md`
+2. 全局：`~/.buuctf_agent/skills/*/SKILL.md`
+3. 配置自定义路径：`config.json` 中 `skills.paths` 数组
+
+同名 skill 以先发现的为准。
+
+#### load_skill 工具
+
+作为内置工具注册到工具列表中，与 BashShell 并列：
+
+- 工具名：`load_skill`
+- 参数：`name`（string）—— 要加载的 skill 名称
+- 行为：查找对应 skill，将其 Markdown 内容作为工具结果返回给 LLM
+- LLM 在系统提示中看到所有可用 skill 的名称和描述，自行决定何时调用
+
+#### 系统提示集成
+
+在系统提示模板中追加可用 skill 列表：
+
+```
+## 可用技能
+你可以通过 load_skill 工具加载以下专业技能：
+- web-exploitation: Web 安全漏洞利用技术
+- crypto-analysis: 密码学分析与破解方法
+- binary-reverse: 二进制逆向分析技术
+...
+当你遇到需要专业知识的题目时，先加载相关技能再行动。
+```
+
+#### 配置
+
+`config_template.json` 新增：
+
+```json
+{
+  "skills": {
+    "paths": []
+  }
+}
+```
+
 ### 核心 Agent 循环
 
 `agent/agent_core.py` 实现极简消息循环：
@@ -114,6 +186,7 @@ def parallel_execute_tools(tools, tool_calls) -> list[dict]:
 - 可用工具列表及使用场景
 - 鼓励一次返回多个 tool_calls 以并行探索
 - shell 命令的最佳实践
+- 可用 skill 列表（名称 + 描述），LLM 可通过 load_skill 工具按需加载专业技能
 
 **解题策略**：
 - 先理解题目类型和附件
@@ -147,6 +220,9 @@ def parallel_execute_tools(tools, tool_calls) -> list[dict]:
 |------|------|
 | `agent/agent_core.py` | 核心 agent 循环，~80 行 |
 | `prompt/system_prompt.yaml` | 单一系统提示模板 |
+| `agent/skill.py` | Skill 发现、加载、注册模块 |
+| `ctf_tool/load_skill.py` | load_skill 工具实现 |
+| `.buuctf_agent/skills/` | 项目本地 skill 目录 |
 
 ### 删除文件
 
@@ -172,7 +248,8 @@ def parallel_execute_tools(tools, tool_calls) -> list[dict]:
 
 | 模块 | 说明 |
 |------|------|
-| `ctf_tool/` | 工具层完全保留 |
+| `ctf_tool/bash_shell.py` | Bash 工具保留 |
+| `ctf_tool/mcp_adapter.py` | MCP 适配器保留 |
 | `ctf_platform/` | 平台层完全保留 |
 | `utils/llm_request.py` | 保留，agent_core 直接调用 |
 | `cli/ui/interface.py` | 保留，用于流式输出 |
@@ -183,12 +260,13 @@ def parallel_execute_tools(tools, tool_calls) -> list[dict]:
 重构后的用户交互流程：
 
 1. 用户运行 `python main.py solve --question "题目描述"`
-2. CLI 加载配置，构建系统提示（注入题目和工具描述）
-3. 调用 `agent_core.run()`，进入自主循环
-4. UI 实时显示 LLM 的思考过程和工具调用
-5. LLM 自主探索解题，期间用户无需介入
-6. LLM 输出 `FLAG_FOUND: flag{xxx}` 或 `UNABLE_TO_SOLVE: ...`
-7. 系统提取结果，调用 FlagSubmitter（如有），结束
+2. CLI 加载配置，发现并注册可用 skills
+3. 构建系统提示（注入题目、工具描述、可用 skill 列表）
+4. 调用 `agent_core.run()`，进入自主循环
+5. LLM 判断题目类型，按需调用 `load_skill` 加载专业技能
+6. LLM 自主探索解题，期间用户无需介入
+7. LLM 输出 `FLAG_FOUND: flag{xxx}` 或 `UNABLE_TO_SOLVE: ...`
+8. 系统提取结果，调用 FlagSubmitter（如有），结束
 
 ## 兼容性
 

