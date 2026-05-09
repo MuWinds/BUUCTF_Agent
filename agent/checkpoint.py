@@ -2,10 +2,10 @@
 @brief 解题进度存档管理模块。
 """
 
-import hashlib
 import json
 import logging
 import os
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -17,86 +17,65 @@ class CheckpointManager:
     """
 
     def __init__(self, checkpoint_dir: str = "./checkpoints") -> None:
-        """
-        @brief 初始化存档目录。
-        @param checkpoint_dir 存档目录路径。
-        @return None。
-        """
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
-    def _get_path(self, problem: str) -> str:
+    def save(self, messages: List[Dict[str, Any]], problem: str = "") -> None:
         """
-        @brief 根据题目内容计算存档文件路径。
-        @param problem 题目文本。
-        @return 存档文件绝对/相对路径。
+        @brief 保存当前对话消息列表到存档文件。
+        @param messages OpenAI 格式的消息列表。
+        @param problem 题目文本（用于元数据）。
         """
-        md5_hash = hashlib.md5(problem.encode("utf-8")).hexdigest()
-        return os.path.join(self.checkpoint_dir, f"ckpt_{md5_hash}.json")
+        # 将消息列表中的不可序列化对象转换为 dict
+        serializable_msgs = []
+        for msg in messages:
+            if isinstance(msg, dict):
+                serializable_msgs.append(msg)
+            elif hasattr(msg, "model_dump"):
+                serializable_msgs.append(msg.model_dump())
+            else:
+                serializable_msgs.append(str(msg))
 
-    def save(
-        self,
-        problem: str,
-        step_count: int,
-        auto_mode: bool,
-        memory_data: Dict[str, Any],
-    ) -> None:
-        """
-        @brief 保存当前解题状态到存档文件。
-        @param problem 题目文本。
-        @param step_count 当前步骤号。
-        @param auto_mode 当前是否为自动模式。
-        @param memory_data 记忆模块序列化数据。
-        @return None。
-        """
         data = {
             "problem": problem,
-            "step_count": step_count,
-            "auto_mode": auto_mode,
-            "memory": memory_data,
+            "messages": serializable_msgs,
+            "saved_at": datetime.now().isoformat(),
         }
-        path = self._get_path(problem)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(self.checkpoint_dir, f"ckpt_{timestamp}.json")
         with open(path, "w", encoding="utf-8") as file:
             json.dump(data, file, ensure_ascii=False, indent=2)
-        logger.info("存档已保存: step %s -> %s", step_count, path)
+        logger.info("存档已保存: %s", path)
 
-    def load(self, problem: str) -> Optional[Dict[str, Any]]:
+    def load_latest(self) -> Optional[Dict[str, Any]]:
         """
-        @brief 读取并校验指定题目的存档。
-        @param problem 题目文本。
-        @return 存档字典；若不存在或无效则返回 None。
+        @brief 加载最新的存档。
+        @return 存档字典；若不存在则返回 None。
         """
-        path = self._get_path(problem)
-        if not os.path.exists(path):
+        files = self.list_checkpoints()
+        if not files:
             return None
 
+        # 按文件名排序取最新
+        files.sort(reverse=True)
+        path = os.path.join(self.checkpoint_dir, files[0])
         try:
             with open(path, "r", encoding="utf-8") as file:
-                data = json.load(file)
-            if data.get("problem") != problem:
-                logger.warning("存档题目不匹配，忽略")
-                return None
-            return data
+                return json.load(file)
         except (json.JSONDecodeError, IOError) as error:
             logger.error("读取存档失败: %s", error)
             return None
 
-    def exists(self, problem: str) -> bool:
+    def delete_latest(self) -> None:
         """
-        @brief 检查指定题目的存档是否存在。
-        @param problem 题目文本。
-        @return 若存在返回 True，否则返回 False。
+        @brief 删除最新的存档文件。
         """
-        return os.path.exists(self._get_path(problem))
-
-    def delete(self, problem: str) -> None:
-        """
-        @brief 删除指定题目的存档。
-        @param problem 题目文本。
-        @return None。
-        """
-        path = self._get_path(problem)
-        if os.path.exists(path):
+        files = self.list_checkpoints()
+        if not files:
+            return
+        files.sort(reverse=True)
+        path = os.path.join(self.checkpoint_dir, files[0])
+        if os.path.isfile(path):
             os.remove(path)
             logger.info("存档已删除: %s", path)
 
@@ -107,27 +86,7 @@ class CheckpointManager:
         """
         if not os.path.exists(self.checkpoint_dir):
             return []
-
         return [
-            file_name
-            for file_name in os.listdir(self.checkpoint_dir)
-            if file_name.startswith("ckpt_") and file_name.endswith(".json")
+            f for f in os.listdir(self.checkpoint_dir)
+            if f.startswith("ckpt_") and f.endswith(".json")
         ]
-
-    def load_any(self) -> Optional[Dict[str, Any]]:
-        """
-        @brief 加载首个可用存档（无需指定题目）。
-        @return 存档字典；若不存在或读取失败则返回 None。
-        """
-        files = self.list_checkpoints()
-        if not files:
-            return None
-
-        path = os.path.join(self.checkpoint_dir, files[0])
-        try:
-            with open(path, "r", encoding="utf-8") as file:
-                data = json.load(file)
-            return data
-        except (json.JSONDecodeError, IOError) as error:
-            logger.error("读取存档失败: %s", error)
-            return None
