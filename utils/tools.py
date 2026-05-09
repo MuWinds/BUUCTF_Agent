@@ -27,19 +27,13 @@ class ToolUtils:
         @raises ValueError 当配置文件不存在或读取失败时抛出。
         """
         self.config = Config.load_config()
-        self.analyzer_llm = LLMRequest("solve_agent")
 
         self.tools: Dict[str, Any] = {}
         self.local_function_configs: List[Dict[str, Any]] = []
         self.mcp_function_configs: List[Dict[str, Any]] = []
 
-        with open("./prompt.yaml", "r", encoding="utf-8") as prompt_file:
-            self.prompt: dict = yaml.safe_load(prompt_file)
-
         if self.config is None:
             raise ValueError("找不到配置文件")
-
-        self.env = Environment(loader=FileSystemLoader("."))
 
     def load_tools(self) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """
@@ -126,10 +120,10 @@ class ToolUtils:
             func_name = tool_call.function.name
             raw_arguments = tool_call.function.arguments
             try:
+                args = json.loads(raw_arguments)
+            except json.JSONDecodeError:
+                import json_repair
                 args = json_repair.loads(raw_arguments)
-            except json.JSONDecodeError as error:
-                repaired = fix_json_with_llm(raw_arguments, str(error))
-                args = json_repair.loads(repaired)
 
             tool_calls.append({"tool_name": func_name, "arguments": args})
 
