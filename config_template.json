@@ -4,7 +4,6 @@
         "api_key": "",
         "api_base": "https://api.openai.com/v1"
     },
-    "max_tool_output": 8192,
     "checkpoint_dir": "./checkpoints",
     "tool_config": {
         "bash_shell": {

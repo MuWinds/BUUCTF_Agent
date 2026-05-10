@@ -8,9 +8,6 @@ from typing import Any, Callable, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# 单个工具输出的最大字符数
-DEFAULT_MAX_TOOL_OUTPUT = 8192
-
 
 def run(
     messages: List[Dict[str, Any]],
@@ -20,7 +17,6 @@ def run(
     on_message: Optional[Callable] = None,
     checkpoint_mgr: Any = None,
     problem: str = "",
-    max_tool_output: int = DEFAULT_MAX_TOOL_OUTPUT,
 ) -> str:
     """
     @brief 自主 agent 循环：LLM 自主决定工具调用和停止时机。
@@ -31,7 +27,6 @@ def run(
     @param on_message 消息回调（用于 UI 显示）。
     @param checkpoint_mgr 可选的存档管理器。
     @param problem 题目文本（用于存档元数据）。
-    @param max_tool_output 单个工具输出的最大字符数。
     @return 解题结果字符串。
     """
     from utils.tools import ToolUtils
@@ -72,14 +67,6 @@ def run(
             tool_calls=msg.tool_calls,
             display_message=on_message,
         )
-
-        # 截断过长的工具输出
-        for result in tool_results:
-            if len(result["content"]) > max_tool_output:
-                result["content"] = (
-                    result["content"][:max_tool_output]
-                    + f"\n... [输出被截断，原始长度: {len(result['content'])} 字符]"
-                )
 
         # 工具结果加入历史
         messages.extend(tool_results)

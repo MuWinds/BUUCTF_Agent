@@ -247,8 +247,6 @@ def run_workflow(
         user_interface=user_interface,
     )
 
-    max_tool_output = config.get("max_tool_output", 8192)
-
     # 运行 agent 循环
     result = run(
         messages=messages,
@@ -258,7 +256,6 @@ def run_workflow(
         on_message=user_interface.display_message,
         checkpoint_mgr=checkpoint_mgr,
         problem=problem,
-        max_tool_output=max_tool_output,
     )
 
     # 尝试提交 flag
