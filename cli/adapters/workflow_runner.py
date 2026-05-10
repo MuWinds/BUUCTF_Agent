@@ -131,7 +131,7 @@ def load_checkpoint_for_solve(
     if not allow_resume:
         return None
 
-    checkpoint_data = checkpoint_mgr.load_any()
+    checkpoint_data = checkpoint_mgr.load_latest()
     if not checkpoint_data:
         return None
 
