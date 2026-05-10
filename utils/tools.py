@@ -52,6 +52,7 @@ class ToolUtils:
                 "__init__.py",
                 "base_tool.py",
                 "mcp_adapter.py",
+                "load_skill.py",
             ]:
                 module_name = file_name[:-3]
                 try:
