@@ -78,7 +78,7 @@ def _get_search_dirs(
     dirs = []
 
     # 1. 项目本地目录
-    project_local = os.path.join(project_dir, ".buuctf_agent", "skills")
+    project_local = os.path.join(project_dir, "skills")
     if os.path.isdir(project_local):
         dirs.append(project_local)
 
