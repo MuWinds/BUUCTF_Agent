@@ -24,7 +24,8 @@ def list_command() -> None:
 
     function_configs = []
     for file_name in os.listdir(tools_dir):
-        if file_name in {"__init__.py", "base_tool.py", "mcp_adapter.py"} or not file_name.endswith(".py"):
+        skip = {"__init__.py", "base_tool.py", "mcp_adapter.py"}
+        if file_name in skip or not file_name.endswith(".py"):
             continue
 
         module_name = file_name[:-3]
@@ -34,7 +35,11 @@ def list_command() -> None:
             continue
 
         for _, obj in inspect.getmembers(module):
-            if inspect.isclass(obj) and issubclass(obj, BaseTool) and obj is not BaseTool:
+            if (
+                inspect.isclass(obj)
+                and issubclass(obj, BaseTool)
+                and obj is not BaseTool
+            ):
                 try:
                     instance = obj()
                     function_configs.append(instance.function_config)

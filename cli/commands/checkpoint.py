@@ -50,7 +50,9 @@ def list_command() -> None:
             continue
 
         file_path = os.path.join(manager.checkpoint_dir, file_name)
-        mtime = datetime.fromtimestamp(os.path.getmtime(file_path)).strftime("%Y-%m-%d %H:%M:%S")
+        mtime = datetime.fromtimestamp(
+            os.path.getmtime(file_path)
+        ).strftime("%Y-%m-%d %H:%M:%S")
 
         step = str(data.get("step_count", "-"))
         mode = "自动" if data.get("auto_mode") else "手动"

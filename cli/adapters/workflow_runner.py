@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from agent.checkpoint import CheckpointManager
-from ctf_platform import Question, create_inputer, create_submitter
+from ctf_platform import Question, create_inputer
 from utils.user_interface import UserInterface
 
 
@@ -19,6 +19,7 @@ class HTTPRequestToDebugFilter(logging.Filter):
     """将 HTTP 请求日志降级为 DEBUG。"""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """过滤 HTTP 请求日志并降级为 DEBUG。"""
         if record.name in {"httpx", "httpcore"}:
             message = record.getMessage()
             if (
@@ -85,7 +86,10 @@ def build_question_from_text(
     )
 
 
-def load_question_from_file(path: str, attachment_dir: str = "./attachments") -> Question:
+def load_question_from_file(
+    path: str,
+    attachment_dir: str = "./attachments",
+) -> Question:
     """从文件读取题目内容。"""
     with open(path, "r", encoding="utf-8") as file:
         content = file.read()
@@ -101,25 +105,26 @@ def resolve_question(
 ) -> Tuple[str, Question, str]:
     """解析题目来源并返回 (problem, question_obj, source_text)。"""
     platform_config = config.get("platform", {})
-    inputer_config = platform_config.get("inputer", {"type": "file"})
+    inputer_config = platform_config.get("inputer", {"type": "manual"})
     attachment_dir = inputer_config.get("attachment_dir", "./attachments")
     if attachment_dir_override:
         attachment_dir = attachment_dir_override
 
     if question_text:
-        question = build_question_from_text(question_text, attachment_dir=attachment_dir)
+        question = build_question_from_text(
+            question_text, attachment_dir=attachment_dir
+        )
         return question.content, question, "命令参数 --question"
 
     if question_file:
         question = load_question_from_file(question_file, attachment_dir=attachment_dir)
         return question.content, question, str(Path(question_file))
 
-    # 未显式传参时沿用原逻辑：提示用户后按 inputer 配置读取
-    inputer = create_inputer(inputer_config)
+    # 未显式传参时：手动输入题目
+    inputer = create_inputer(inputer_config, user_interface=user_interface)
     user_interface.display_message("如题目中含有附件，可放到项目根目录的attachments文件夹下")
-    user_interface.input_question_ready("将题目文本放在Agent根目录下的question.txt回车以结束")
     question = inputer.fetch_question()
-    return question.content, question, inputer_config.get("file_path", "./question.txt")
+    return question.content, question, "手动输入"
 
 
 def load_checkpoint_for_solve(
@@ -178,7 +183,7 @@ def run_workflow(
 ) -> str:
     """执行 Agent 自主解题流程。"""
     import yaml
-    from jinja2 import Environment, BaseLoader
+    from jinja2 import BaseLoader, Environment
 
     from agent.agent_core import run
     from agent.checkpoint import CheckpointManager
@@ -216,7 +221,10 @@ def run_workflow(
     # 渲染系统提示（注入 skills 列表）
     env = Environment(loader=BaseLoader())
     template = env.from_string(prompt_data["system_prompt"])
-    skills_info = [{"name": s.name, "description": s.description} for s in skill_registry.all()]
+    skills_info = [
+        {"name": s.name, "description": s.description}
+        for s in skill_registry.all()
+    ]
     system_prompt = template.render(
         question=problem,
         tools=tool_defs,

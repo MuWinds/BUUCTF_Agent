@@ -259,7 +259,7 @@ def parallel_execute_tools(tools, tool_calls) -> list[dict]:
 
 重构后的用户交互流程：
 
-1. 用户运行 `python main.py solve --question "题目描述"`
+1. 用户运行 `python main.py`
 2. CLI 加载配置，发现并注册可用 skills
 3. 构建系统提示（注入题目、工具描述、可用 skill 列表）
 4. 调用 `agent_core.run()`，进入自主循环

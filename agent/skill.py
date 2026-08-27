@@ -1,7 +1,5 @@
-"""
-@brief Skill 发现与加载模块。
+"""Skill 发现与加载模块。
 
-@details
 参考 OpenCode 的 skill 系统设计。每个 skill 是一个 SKILL.md 文件，
 包含 YAML frontmatter（name, description）和 Markdown 正文内容。
 支持从项目本地目录和全局目录发现 skills。
@@ -54,11 +52,14 @@ def discover_skills(
     config: Optional[Dict[str, Any]] = None,
     project_dir: str = ".",
 ) -> SkillRegistry:
-    """
-    @brief 从多个目录发现并加载所有 skills。
-    @param config 全局配置字典，用于读取 skills.paths。
-    @param project_dir 项目根目录。
-    @return SkillRegistry 实例。
+    """从多个目录发现并加载所有 skills。
+
+    Args:
+        config: 全局配置字典，用于读取 skills.paths。
+        project_dir: 项目根目录。
+
+    Returns:
+        SkillRegistry 实例。
     """
     registry = SkillRegistry()
     search_dirs = _get_search_dirs(config, project_dir)

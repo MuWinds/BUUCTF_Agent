@@ -21,9 +21,21 @@ def _check_required_fields(config: Dict[str, Any]) -> List[Tuple[str, bool, str]
     inputer = platform.get("inputer", {})
 
     checks: List[Tuple[str, bool, str]] = [
-        ("llm.model", isinstance(llm.get("model"), str) and bool(llm.get("model")), "模型名称"),
-        ("llm.api_key", isinstance(llm.get("api_key"), str) and bool(llm.get("api_key")), "API Key"),
-        ("llm.api_base", isinstance(llm.get("api_base"), str) and bool(llm.get("api_base")), "API Base"),
+        (
+            "llm.model",
+            isinstance(llm.get("model"), str) and bool(llm.get("model")),
+            "模型名称",
+        ),
+        (
+            "llm.api_key",
+            isinstance(llm.get("api_key"), str) and bool(llm.get("api_key")),
+            "API Key",
+        ),
+        (
+            "llm.api_base",
+            isinstance(llm.get("api_base"), str) and bool(llm.get("api_base")),
+            "API Base",
+        ),
         (
             "platform.inputer.type",
             isinstance(inputer.get("type"), str) and bool(inputer.get("type")),
@@ -53,7 +65,8 @@ def check_command() -> None:
     missing = [item for item in checks if not item[1]]
 
     summary = "配置完整" if not missing else f"存在 {len(missing)} 项缺失"
-    console.print(Panel(summary, title="配置检查结果", border_style="green" if not missing else "yellow"))
+    border = "green" if not missing else "yellow"
+    console.print(Panel(summary, title="配置检查结果", border_style=border))
 
     table = Table(title="关键配置项")
     table.add_column("字段", style="cyan")

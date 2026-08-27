@@ -1,5 +1,7 @@
+"""LLM 请求封装模块，提供文本补全和向量化接口。"""
+
 import logging
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, cast
 
 from openai import OpenAI
 
@@ -9,36 +11,20 @@ from utils.text import optimize_text
 logger = logging.getLogger(__name__)
 
 
-class EmbeddingResponse:
-    """
-    @brief Embedding 响应的轻量封装。
-
-    @param data 仅包含 embedding 向量数据的列表。
-    """
-
-    def __init__(self, data: List[Dict[str, Any]]):
-        """
-        @brief 初始化 EmbeddingResponse。
-        @param data embedding 结果列表。
-        @return 无返回值。
-        """
-        self.data = data
-
-
 class LLMRequest:
-    """
-    @brief LLM 请求封装器。
+    """LLM 请求封装器。
 
-    @details
     负责读取配置、初始化 OpenAI 客户端，并提供文本补全和向量化接口。
     """
 
     def __init__(self, model: str):
-        """
-        @brief 初始化 LLMRequest 实例。
-        @param model 模型名或角色别名。
-        @return 无返回值。
-        @raises KeyError 当配置缺少必需字段时抛出。
+        """初始化 LLMRequest 实例。
+
+        Args:
+            model: 模型名或角色别名。
+
+        Raises:
+            KeyError: 当配置缺少必需字段时抛出。
         """
         config: dict = Config.load_config()
 
@@ -59,13 +45,18 @@ class LLMRequest:
             base_url=self.llm_config.get("api_base"),
         )
 
-    def text_completion(self, prompt: str, json_check: bool, **kwargs: Any) -> Any:
-        """
-        @brief 发起文本补全请求。
-        @param prompt 用户提示词。
-        @param json_check 是否启用 JSON 输出约束。
-        @param kwargs 透传给 OpenAI chat.completions.create 的额外参数。
-        @return OpenAI 原始响应对象。
+    def text_completion(
+        self, prompt: str, json_check: bool, **kwargs: Any
+    ) -> Any:
+        """发起文本补全请求。
+
+        Args:
+            prompt: 用户提示词。
+            json_check: 是否启用 JSON 输出约束。
+            kwargs: 透传给 OpenAI chat.completions.create 的额外参数。
+
+        Returns:
+            OpenAI 原始响应对象。
         """
         request_kwargs = dict(kwargs)
 
@@ -89,12 +80,15 @@ class LLMRequest:
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: str = "auto",
     ) -> Any:
-        """
-        @brief 使用完整消息列表发起对话补全请求。
-        @param messages OpenAI 格式的消息列表。
-        @param tools 工具定义列表。
-        @param tool_choice 工具选择策略。
-        @return OpenAI 原始响应对象。
+        """使用完整消息列表发起对话补全请求。
+
+        Args:
+            messages: OpenAI 格式的消息列表。
+            tools: 工具定义列表。
+            tool_choice: 工具选择策略。
+
+        Returns:
+            OpenAI 原始响应对象。
         """
         kwargs: Dict[str, Any] = {}
         if tools:
@@ -103,27 +97,8 @@ class LLMRequest:
 
         response = self.client.chat.completions.create(
             model=self.llm_config["model"],
-            messages=messages,
+            messages=cast(Any, messages),
             **kwargs,
         )
         logger.debug("LLM Response Message: %s", response.choices[0].message.content)
         return response
-
-    def embedding(self, text: Union[str, List[str]], **kwargs: Any) -> EmbeddingResponse:
-        """
-        @brief 发起文本向量化请求。
-        @param text 单条文本或文本列表。
-        @param kwargs 透传给 embeddings.create 的额外参数。
-        @return EmbeddingResponse 封装对象。
-        """
-        if isinstance(text, str):
-            text = [text]
-
-        response = self.client.embeddings.create(
-            model=self.llm_config["model"],
-            input=text,
-            **kwargs,
-        )
-
-        data = [{"embedding": item.embedding} for item in response.data]
-        return EmbeddingResponse(data)

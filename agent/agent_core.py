@@ -1,33 +1,36 @@
-"""
-@brief 自主 Agent 核心循环。
-"""
+"""自主 Agent 核心循环。"""
 
 import logging
 import re
 from typing import Any, Callable, Dict, List, Optional
+
+from ctf_tool.base_tool import BaseTool
 
 logger = logging.getLogger(__name__)
 
 
 def run(
     messages: List[Dict[str, Any]],
-    tools: list,
+    tools: Dict[str, BaseTool],
     tool_defs: list,
     llm: Any,
     on_message: Optional[Callable] = None,
     checkpoint_mgr: Any = None,
     problem: str = "",
 ) -> str:
-    """
-    @brief 自主 agent 循环：LLM 自主决定工具调用和停止时机。
-    @param messages 初始消息列表（含 system + user）。
-    @param tools 工具实例字典。
-    @param tool_defs OpenAI 格式的工具定义列表。
-    @param llm LLMRequest 实例。
-    @param on_message 消息回调（用于 UI 显示）。
-    @param checkpoint_mgr 可选的存档管理器。
-    @param problem 题目文本（用于存档元数据）。
-    @return 解题结果字符串。
+    """自主 agent 循环：LLM 自主决定工具调用和停止时机。
+
+    Args:
+        messages: 初始消息列表（含 system + user）。
+        tools: 工具实例字典。
+        tool_defs: OpenAI 格式的工具定义列表。
+        llm: LLMRequest 实例。
+        on_message: 消息回调（用于 UI 显示）。
+        checkpoint_mgr: 可选的存档管理器。
+        problem: 题目文本（用于存档元数据）。
+
+    Returns:
+        解题结果字符串。
     """
     from utils.tools import ToolUtils
 
@@ -117,9 +120,9 @@ def _trim_context(
     messages: List[Dict[str, Any]],
     max_tokens: int = 100000,
 ) -> List[Dict[str, Any]]:
-    """
-    @brief 当消息列表过长时，截断最早的消息。
-    @details 保留系统提示（第一条）+ 最近的消息。使用粗略的字符数估算 token。
+    """当消息列表过长时，截断最早的消息。
+
+    保留系统提示（第一条）+ 最近的消息。使用粗略的字符数估算 token。
     """
     # 粗略估算：1 token ≈ 2 个中文字符 或 4 个英文字符，取平均 3
     total_chars = sum(len(str(m.get("content", ""))) for m in messages)
@@ -129,7 +132,11 @@ def _trim_context(
         return messages
 
     # 保留系统提示 + 截断早期消息
-    system_msg = messages[0] if messages and messages[0].get("role") == "system" else None
+    system_msg = (
+        messages[0]
+        if messages and messages[0].get("role") == "system"
+        else None
+    )
     remaining = messages[1:] if system_msg else messages[:]
 
     # 删除最早的 20% 消息
@@ -143,9 +150,9 @@ def _trim_context(
 
 
 def _extract_result(messages: List[Dict[str, Any]]) -> str:
-    """
-    @brief 从消息历史中提取最终结果。
-    @details 扫描最后一条 assistant 消息，查找 FLAG_FOUND 或 UNABLE_TO_SOLVE 标记。
+    """从消息历史中提取最终结果。
+
+    扫描最后一条 assistant 消息，查找 FLAG_FOUND 或 UNABLE_TO_SOLVE 标记。
     """
     # 从后往前找最后一条 assistant 消息
     for msg in reversed(messages):

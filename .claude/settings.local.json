@@ -5,7 +5,35 @@
       "Bash(conda env:*)",
       "Bash(conda run:*)",
       "Bash(\"C:/Users/MuWinds/.conda/envs/ctf-agent/python.exe\":*)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "Bash(dir .env*)",
+      "Bash(dir pyproject.toml)",
+      "Bash(conda activate *)",
+      "Bash(pip install *)",
+      "Bash(.\\\\.venv\\\\Scripts\\\\python.exe -m pyright)",
+      "Bash(ruff check *)",
+      "Bash(bash .claude/hook_lint.sh)",
+      "Bash(echo \"exit: $?\")"
     ]
-  }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$(git rev-parse --show-toplevel)/.claude/hook_lint.sh\"",
+            "shell": "bash",
+            "timeout": 30,
+            "statusMessage": "Running ruff check..."
+          }
+        ]
+      }
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "chrome-devtools",
+    "tabby-mcp"
+  ]
 }

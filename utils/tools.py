@@ -1,3 +1,5 @@
+"""工具加载与工具响应处理模块。"""
+
 import importlib
 import inspect
 import json
@@ -12,19 +14,17 @@ logger = logging.getLogger(__name__)
 
 
 class ToolUtils:
-    """
-    @brief 工具加载与工具响应处理工具类。
+    """工具加载与工具响应处理工具类。
 
-    @details
     负责加载本地工具与 MCP 工具、解析工具调用参数，
     并在输出过长时生成工具执行摘要。
     """
 
     def __init__(self):
-        """
-        @brief 初始化 ToolUtils。
-        @return 无返回值。
-        @raises ValueError 当配置文件不存在或读取失败时抛出。
+        """初始化 ToolUtils。
+
+        Raises:
+            ValueError: 当配置文件不存在或读取失败时抛出。
         """
         self.config = Config.load_config()
 
@@ -36,9 +36,10 @@ class ToolUtils:
             raise ValueError("找不到配置文件")
 
     def load_tools(self) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
-        """
-        @brief 加载工具并区分本地工具与 MCP 工具。
-        @return 二元组：(工具实例字典, 工具配置列表)。
+        """加载工具并区分本地工具与 MCP 工具。
+
+        Returns:
+            二元组：(工具实例字典, 工具配置列表)。
         """
         config = Config.load_config()
         tools_dir = os.path.join(os.path.dirname(__file__), "..", "ctf_tool")
@@ -101,14 +102,15 @@ class ToolUtils:
 
     @staticmethod
     def parse_tool_response(response: Any) -> List[Dict[str, Any]]:
-        """
-        @brief 统一解析工具调用响应。
+        """统一解析工具调用响应。
 
-        @details
         当前仅支持从 response.choices[0].message.tool_calls 中读取工具调用。
 
-        @param response LLM 原始响应对象。
-        @return 工具调用列表，每项包含 tool_name 与 arguments。
+        Args:
+            response: LLM 原始响应对象。
+
+        Returns:
+            工具调用列表，每项包含 tool_name 与 arguments。
         """
         message = response.choices[0].message
         tool_calls: List[Dict[str, Any]] = []
@@ -140,13 +142,17 @@ class ToolUtils:
         tool_calls: list,
         display_message: Optional[Callable[[str], None]] = None,
     ) -> list:
-        """
-        @brief 并行执行一组工具调用，返回 OpenAI 格式的 tool result 消息列表。
+        """并行执行一组工具调用。
 
-        @param tools 工具实例映射，key 为工具名。
-        @param tool_calls OpenAI 原生 tool_call 对象列表。
-        @param display_message 可选的消息显示回调。
-        @return OpenAI 格式的 tool result 消息列表。
+        返回 OpenAI 格式的 tool result 消息列表。
+
+        Args:
+            tools: 工具实例映射，key 为工具名。
+            tool_calls: OpenAI 原生 tool_call 对象列表。
+            display_message: 可选的消息显示回调。
+
+        Returns:
+            OpenAI 格式的 tool result 消息列表。
         """
         from concurrent.futures import ThreadPoolExecutor, as_completed
 

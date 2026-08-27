@@ -1,0 +1,9 @@
+line-length = 88
+target-version = "py312"
+
+[lint]
+select = ["E", "F", "W", "D", "I"]
+ignore = ["D100", "D104", "D415"]
+
+[lint.pydocstyle]
+convention = "google"

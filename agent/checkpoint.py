@@ -1,6 +1,4 @@
-"""
-@brief 解题进度存档管理模块。
-"""
+"""解题进度存档管理模块。"""
 
 import json
 import logging
@@ -12,19 +10,23 @@ logger = logging.getLogger(__name__)
 
 
 class CheckpointManager:
-    """
-    @brief 管理解题流程中的存档文件。
-    """
+    """管理解题流程中的存档文件。"""
 
     def __init__(self, checkpoint_dir: str = "./checkpoints") -> None:
+        """初始化存档管理器。
+
+        Args:
+            checkpoint_dir: 存档文件目录路径。
+        """
         self.checkpoint_dir = checkpoint_dir
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
     def save(self, messages: List[Dict[str, Any]], problem: str = "") -> None:
-        """
-        @brief 保存当前对话消息列表到存档文件。
-        @param messages OpenAI 格式的消息列表。
-        @param problem 题目文本（用于元数据）。
+        """保存当前对话消息列表到存档文件。
+
+        Args:
+            messages: OpenAI 格式的消息列表。
+            problem: 题目文本（用于元数据）。
         """
         # 将消息列表中的不可序列化对象转换为 dict
         serializable_msgs = []
@@ -48,9 +50,10 @@ class CheckpointManager:
         logger.info("存档已保存: %s", path)
 
     def load_latest(self) -> Optional[Dict[str, Any]]:
-        """
-        @brief 加载最新的存档。
-        @return 存档字典；若不存在则返回 None。
+        """加载最新的存档。
+
+        Returns:
+            存档字典；若不存在则返回 None。
         """
         files = self.list_checkpoints()
         if not files:
@@ -67,9 +70,7 @@ class CheckpointManager:
             return None
 
     def delete_latest(self) -> None:
-        """
-        @brief 删除最新的存档文件。
-        """
+        """删除最新的存档文件。"""
         files = self.list_checkpoints()
         if not files:
             return
@@ -80,9 +81,10 @@ class CheckpointManager:
             logger.info("存档已删除: %s", path)
 
     def list_checkpoints(self) -> List[str]:
-        """
-        @brief 列出存档目录下所有存档文件名。
-        @return 存档文件名列表。
+        """列出存档目录下所有存档文件名。
+
+        Returns:
+            存档文件名列表。
         """
         if not os.path.exists(self.checkpoint_dir):
             return []

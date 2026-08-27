@@ -18,6 +18,7 @@ from cli.adapters.workflow_runner import (
 from cli.ui.interface import RichPromptToolkitInterface
 from config import Config
 
+
 def solve_command(
     question_file: Optional[str] = typer.Option(
         None,
@@ -62,7 +63,11 @@ def solve_command(
     )
 
     checkpoint_dir_value = config.get("checkpoint_dir", "./checkpoints")
-    checkpoint_dir = checkpoint_dir_value if isinstance(checkpoint_dir_value, str) else "./checkpoints"
+    checkpoint_dir = (
+        checkpoint_dir_value
+        if isinstance(checkpoint_dir_value, str)
+        else "./checkpoints"
+    )
     checkpoint_mgr = CheckpointManager(checkpoint_dir=checkpoint_dir)
 
     resume_data = load_checkpoint_for_solve(

@@ -29,6 +29,7 @@ class RichPromptToolkitInterface(UserInterface):
         forced_auto_mode: Optional[bool] = None,
         forced_resume: Optional[bool] = None,
     ) -> None:
+        """初始化交互界面。"""
         self.console = Console(no_color=plain, force_terminal=not plain)
         self.show_think = show_think
         self.forced_auto_mode = forced_auto_mode
@@ -64,7 +65,10 @@ class RichPromptToolkitInterface(UserInterface):
                 return default
             if response in choices:
                 return response
-            self.render_warning(f"无效输入：{response or '<空>'}，可选: {', '.join(choices)}")
+            joined = ", ".join(choices)
+            self.render_warning(
+                f"无效输入：{response or '<空>'}，可选: {joined}"
+            )
 
     def render_info(self, message: str) -> None:
         """渲染普通信息。"""
@@ -108,6 +112,28 @@ class RichPromptToolkitInterface(UserInterface):
             )
         )
 
+    def input_question(self) -> str:
+        """多行题目输入，空行结束。
+
+        Returns:
+            用户输入的完整题目文本。
+        """
+        self.console.print("[cyan]请输入题目（连续两次回车结束输入）：[/cyan]")
+        lines: List[str] = []
+        consecutive_empty = 0
+        while True:
+            line = self._prompt("> " if lines else "")
+            if line.strip() == "":
+                consecutive_empty += 1
+                if consecutive_empty >= 2 or (not lines and consecutive_empty >= 1):
+                    break
+                lines.append("")
+            else:
+                consecutive_empty = 0
+                lines.append(line)
+
+        return "\n".join(lines).strip()
+
     def confirm_flag(self, flag_candidate: str) -> bool:
         """候选 flag 确认。"""
         panel = Panel(
@@ -116,12 +142,10 @@ class RichPromptToolkitInterface(UserInterface):
             border_style="yellow",
         )
         self.console.print(panel)
-        choice = self._prompt_choice("确认该 flag 正确？(y/n): ", ["y", "n"], default="y")
+        choice = self._prompt_choice(
+            "确认该 flag 正确？(y/n): ", ["y", "n"], default="y"
+        )
         return choice == "y"
-
-    def input_question_ready(self, prompt: str) -> None:
-        """等待用户确认题目已准备。"""
-        self._prompt(prompt)
 
     def display_message(self, message: str) -> None:
         """根据消息内容进行轻量级分级渲染。"""
@@ -136,7 +160,11 @@ class RichPromptToolkitInterface(UserInterface):
             self.render_warning(normalized)
             return
         if "正在思考第" in normalized:
-            step_text = normalized.replace("\n", "").replace("正在思考第", "").replace("步...", "")
+            step_text = (
+                normalized.replace("\n", "")
+                .replace("正在思考第", "")
+                .replace("步...", "")
+            )
             if step_text.isdigit():
                 self.render_step_header(int(step_text))
             else:
