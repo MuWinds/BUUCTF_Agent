@@ -1,12 +1,7 @@
 # AGENTS.md
 
-本文件为 Claude Code (claude.ai/code) 在本仓库工作时提供指引。
-
 通用 Coding Agent。Tauri v2 外壳，Rust 内核 + React 前端，只支持 OpenAI 兼容协议
 （可配 base_url / api_key / model）。
-
-> 本仓库原为 Python 版 BUUCTF_Agent，已于重构时整体删除。旧代码保留在 git 历史的
-> `chore: 重构前的工作区快照` 提交中。
 
 ---
 
@@ -44,6 +39,9 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 | `pnpm format:check` | 只检查不改写，用于 CI 与提交前 |
 | `pnpm test` | Vitest 跑一次 |
 | `pnpm test:watch` | Vitest watch 模式 |
+| `pnpm fake-llm` | 起假 LLM 服务端（127.0.0.1:8787），手动测 GUI 用 |
+| `pnpm fake-llm:record <id>` | 录制模式：转发到真实 LLM 并把回答抓成 fixture |
+| `cargo test --test e2e` | 只跑端到端测试 |
 | `cargo fmt --all` | rustfmt 就地格式化 |
 | `cargo clippy --workspace --all-targets -- -D warnings` | 静态检查，告警即失败 |
 | `cargo test --workspace` | 全部 Rust 测试 |
@@ -60,8 +58,29 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 | --- | --- | --- | --- |
 | `agent-core` | `cargo test` | 30 | SSE 累加、轮次循环、会话投影、配置校验 |
 | `src-tauri` | `cargo test` | 89 | 各工具（bash / edit / grep / glob / read / write / diff）、路径边界、持久化 |
+| 端到端 | `cargo test --test e2e` | 12 | 真协议 + 真工具 + 真循环，断言推给 UI 的事件序列 |
 | 文档示例 | `cargo test --doc` | 1 | `agent-core` 的 `lib.rs` 用例能编译 |
 | 前端 | `vitest` | 16 | session store 行为、事件映射、纯函数、样式书写约束 |
+| GUI | 人工 | 12 场景 | `docs/manual-gui-checklist.md`，只测自动化测不到的渲染与手感 |
+
+### 测试数据只有一份
+
+假 LLM 服务端在 `scripts/fake-llm/`，详见那里的 README。它同时服务两件事：
+
+- `src-tauri/tests/e2e.rs` 起 `--port 0` 的独占实例，断言事件序列
+- 手动测 GUI 时 `pnpm fake-llm`，把应用指过去照着清单点
+
+**fixture 和沙箱数据两边共用**，才不会出现「自动化通过但手动点出来是另一回事」。
+改 `scripts/fake-llm/sandbox/` 里的文件，`e2e.rs` 的断言要一起改。
+
+fixture 可以手写，也可以**从真实 LLM 录**：`pnpm fake-llm:record <id>` 会把请求
+转发给 `scripts/fake-llm/config.json` 里配的真实 API，逐字透传给应用的同时抓成
+fixture。透传而非缓冲，应用才会照常执行真工具、照常发起下一轮 —— 多轮流程和真实
+分片节奏就都被原样录下来了。用前先 `cp config.template.json config.json` 填密钥，
+那个文件已在 `.gitignore` 里。
+
+端到端测试**断言事件而不是断言返回值** —— 事件流才是前端唯一能看到的东西，
+返回值对了但事件序列错了，界面照样是坏的。
 
 ### 写测试的规矩
 
@@ -85,8 +104,8 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 | 工具实现（`src-tauri/src/tools/`） | `cargo test --workspace` |
 | 事件协议（`events.rs` + `events.ts`） | 两侧都改 + `pnpm check` + `cargo test` |
 | 前端 store / 纯函数 | `pnpm check` |
-| LLM 请求响应结构 | `cargo test -p agent-core` |
-| UI 呈现 | `pnpm tauri dev` 人工确认（无自动化覆盖） |
+| LLM 请求响应结构 | `cargo test -p agent-core` + `cargo test --test e2e` |
+| UI 呈现 | `pnpm fake-llm` + `pnpm tauri dev`，照 `docs/manual-gui-checklist.md` 走 |
 
 ---
 
@@ -109,6 +128,14 @@ src-tauri/src/            # 应用层：只做装配，无业务逻辑
   persist.rs  secret.rs   # 落盘 / 系统凭据管理器
   commands/               # Tauri command 薄层
   tools/                  # 工具实现（bash / edit / read / write / grep / glob / diff）
+src-tauri/tests/e2e.rs    # 端到端测试：真协议 + 真工具 + 真循环
+
+scripts/fake-llm/         # 假 LLM 服务端（零依赖 node:http）
+  server.mjs
+  fixtures/*.json         # 场景数据
+  sandbox/                # 工具操作的工作区数据
+
+docs/manual-gui-checklist.md   # GUI 人工测试清单
 
 src/                      # React 前端
   lib/events.ts           # 与 core 的 events.rs 手工对齐
@@ -330,7 +357,7 @@ const loaded: boolean = true;              // 差：boolean 没有增加任何�
 
 描述用中文祈使句，说清楚**改了什么**，必要时在正文补**为什么**：
 
-```
+```git
 fix: bash 工具用 Job Object 回收进程树
 
 child.kill() 只杀 shell 本身，派生的子进程会变成孤儿继续占用工作区文件，
@@ -359,7 +386,24 @@ child.kill() 只杀 shell 本身，派生的子进程会变成孤儿继续占用
 - `config.json` —— 含 API 密钥，已在 `.gitignore` 里。密钥的正路是系统凭据管理器
   （`src-tauri/src/secret.rs`），不落明文。前端那份 `settings.json` 由 Tauri store
   插件写在应用数据目录，不在仓库内，但同样不许把密钥写进去。
+- `scripts/fake-llm/config.json` —— fake-llm 连真实 LLM 用的密钥。
+  模板 `config.template.json` 要提交，真配置不许。
 - `target/`、`node_modules/`、`dist/`、`src-tauri/gen/`。
+
+### .gitignore 的规则一律加根锚点
+
+写 `/target/` 而不是 `target/`，写全路径而不是裸目录名。
+
+上一版沿用了 Python 模板，其中一条裸 `lib/` 把 `src/lib/` 整个吞掉了 ——
+前后端协议真源 `events.ts` 就在里面，`git add` 会**静默失败**，直到有人发现
+仓库里少了半个模块。裸目录名在任意层级都匹配，代价远大于省下的那个斜杠。
+
+加新规则后跑一遍确认没误伤：
+
+```bash
+git ls-files --others --exclude-standard   # 未跟踪且未忽略的，应当只有你新加的源码
+git status --ignored --short               # 被忽略的，应当只有构建产物和密钥
+```
 
 ### 改动边界
 
@@ -367,6 +411,9 @@ child.kill() 只杀 shell 本身，派生的子进程会变成孤儿继续占用
   都会让 review 失焦。
 - **发现无关死代码就指出来，别顺手删**。
 - **自己制造的孤儿要清掉**：改动导致失效的 import、变量、函数一并删除。
+- **`scripts/fake-llm/sandbox/` 是测试数据，不是示例代码**。`tool-edit` 场景会真的
+  改里面的文件 —— 手动测完用 `git checkout scripts/fake-llm/sandbox` 还原。
+  自动化测试跑在临时副本上，不会污染它。
 - `.venv/` 是 Python 时代的遗留，可以删，但别顺手删别的。
 
 ### 需要先确认的操作

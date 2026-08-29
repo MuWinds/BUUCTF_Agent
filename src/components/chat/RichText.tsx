@@ -57,7 +57,7 @@ export const RichText = memo(function RichText({ text }: { text: string }) {
         block.kind === 'code' ? (
           <CodeBlock key={i} lang={block.lang} content={block.content} />
         ) : (
-          <p key={i} className="whitespace-pre-wrap break-words leading-relaxed">
+          <p key={i} className="whitespace-pre-wrap wrap-break-word leading-relaxed">
             {block.content}
           </p>
         ),
@@ -68,7 +68,7 @@ export const RichText = memo(function RichText({ text }: { text: string }) {
 
 function CodeBlock({ lang, content }: { lang?: string; content: string }) {
   return (
-    <div className="overflow-hidden rounded-(--radius-card) border border-(--border) bg-(--bg-inset)">
+    <div className="overflow-hidden rounded-card border border-(--border) bg-(--bg-inset)">
       {lang && (
         <div className="border-b border-(--border) px-3 py-1.5 font-mono text-[11px] text-(--fg-subtle)">
           {lang}

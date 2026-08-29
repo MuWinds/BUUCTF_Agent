@@ -24,7 +24,7 @@ export function StatusPanel({ onOpenSettings }: { onOpenSettings: () => void }) 
       <div className="flex min-w-0 items-center gap-3">
         <span
           className={`size-1.5 shrink-0 rounded-full ${
-            streaming ? 'animate-pulse bg-(--color-warn)' : 'bg-(--color-ok)'
+            streaming ? 'animate-pulse bg-warn' : 'bg-(--color-ok)'
           }`}
         />
 
@@ -83,7 +83,7 @@ function Metric({ label, value, title }: { label: string; value: string; title?:
   return (
     <span className="tabular-nums" title={title}>
       {value}
-      {label && <span className="ml-0.5 text-(--color-base-600)">{label}</span>}
+      {label && <span className="ml-0.5 text-base-600">{label}</span>}
     </span>
   );
 }

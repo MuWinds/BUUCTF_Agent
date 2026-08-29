@@ -1,0 +1,40 @@
+{
+  "id": "tool-bash",
+  "title": "Bash 流式输出",
+  "match": [
+    "跑一下",
+    "执行",
+    "bash"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "我执行一下看看。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_bash_1",
+          "name": "Bash",
+          "arguments": "{\"command\": \"echo 第一行 && echo 第二行 && echo 第三行\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 825,
+        "completion_tokens": 26,
+        "total_tokens": 851
+      }
+    },
+    {
+      "content": [
+        "命令输出了三行，退出码 0。"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 1050,
+        "completion_tokens": 20,
+        "total_tokens": 1070
+      }
+    }
+  ]
+}

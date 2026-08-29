@@ -45,7 +45,7 @@ function EmptyState() {
   return (
     <div className="flex flex-1 items-center justify-center">
       <div className="text-center">
-        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-(--radius-card) border border-(--border) bg-(--bg-elevated) font-mono text-lg text-(--color-accent)">
+        <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-card border border-(--border) bg-(--bg-elevated) font-mono text-lg text-accent">
           {'>_'}
         </div>
         <p className="text-sm text-(--fg-muted)">开始一段对话</p>

@@ -11,8 +11,10 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"*.{json,ts}\"",
+    "fake-llm": "node scripts/fake-llm/server.mjs",
+    "fake-llm:record": "node scripts/fake-llm/server.mjs --record",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"*.{json,ts}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.mjs\" \"*.{json,ts}\"",
     "check": "pnpm typecheck && pnpm format:check && pnpm test"
   },
   "dependencies": {

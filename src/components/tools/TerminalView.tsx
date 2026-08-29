@@ -37,9 +37,7 @@ export const TerminalView = memo(function TerminalView({
     <div>
       {command && (
         <div className="flex items-start gap-2 border-b border-(--border) px-3 py-1.5">
-          <span className="shrink-0 select-none font-mono text-[11px] text-(--color-accent)">
-            $
-          </span>
+          <span className="shrink-0 select-none font-mono text-[11px] text-accent">$</span>
           <span className="selectable flex-1 font-mono text-[11.5px] break-all text-(--fg-muted)">
             {command}
           </span>
@@ -71,7 +69,7 @@ export const TerminalView = memo(function TerminalView({
 
 function Cursor() {
   return (
-    <span className="ml-px inline-block h-[1em] w-[7px] translate-y-[0.15em] animate-pulse bg-(--color-accent)" />
+    <span className="ml-px inline-block h-[1em] w-1.75 translate-y-[0.15em] animate-pulse bg-accent" />
   );
 }
 

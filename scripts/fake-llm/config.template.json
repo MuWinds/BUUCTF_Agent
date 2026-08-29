@@ -1,0 +1,10 @@
+{
+  "//": "复制成 config.json 再填。config.json 已在 .gitignore 里，不会被提交。",
+  "//base_url": "与应用设置页同义：形如 https://api.openai.com/v1，不要带 /chat/completions",
+  "base_url": "https://api.openai.com/v1",
+  "api_key": "",
+  "//model": "录制时用的真实模型名。应用设置页里填什么都会被这里覆盖。",
+  "model": "gpt-4o-mini",
+  "//temperature": "null 表示不发送该字段。录制建议填 0，让同样的输入尽量得到同样的输出。",
+  "temperature": 0
+}

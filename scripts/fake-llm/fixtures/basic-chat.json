@@ -1,0 +1,33 @@
+{
+  "id": "basic-chat",
+  "title": "纯文本回复（含 Markdown 与代码块）",
+  "match": [
+    "你好",
+    "hello",
+    "介绍"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "这个项目是一个 **通用 Coding Agent**，分三层：\n\n",
+        "- `agent-core` —— 不依赖 GUI 的内核\n",
+        "- `src-tauri` —— 应用装配与工具实现\n",
+        "- `src` —— React 前端\n\n",
+        "核心循环长这样：\n\n",
+        "```rust\n",
+        "for round in 0..MAX_TOOL_ROUNDS {\n",
+        "    let step = request(...).await?;\n",
+        "    if step.calls.is_empty() { break; }\n",
+        "}\n",
+        "```\n\n",
+        "还有什么想了解的？"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 812,
+        "completion_tokens": 96,
+        "total_tokens": 908
+      }
+    }
+  ]
+}

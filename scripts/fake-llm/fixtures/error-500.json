@@ -1,0 +1,16 @@
+{
+  "id": "error-500",
+  "title": "HTTP 500 错误响应",
+  "match": [
+    "错误500"
+  ],
+  "http": {
+    "status": 500,
+    "body": {
+      "error": {
+        "message": "The server had an error while processing your request.",
+        "type": "invalid_request_error"
+      }
+    }
+  }
+}

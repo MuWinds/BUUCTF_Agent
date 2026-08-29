@@ -1,0 +1,41 @@
+{
+  "id": "malformed-toolcall",
+  "title": "畸形分片：缺 index、逐字符 arguments、夹杂非法帧",
+  "match": [
+    "畸形",
+    "脏数据"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "读文件。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_weird",
+          "name": "Read",
+          "arguments": "{\"path\": \"README.md\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 800,
+        "completion_tokens": 20,
+        "total_tokens": 820
+      }
+    },
+    {
+      "content": [
+        "即便分片畸形，参数也被正确还原了。"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 1100,
+        "completion_tokens": 20,
+        "total_tokens": 1120
+      }
+    }
+  ],
+  "toolCallStyle": "no-index-micro",
+  "injectBadFrame": true
+}

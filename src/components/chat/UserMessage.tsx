@@ -7,7 +7,7 @@ export const UserMessage = memo(function UserMessage({ message }: { message: Mes
 
   return (
     <div className="flex justify-end px-6 py-4">
-      <div className="selectable max-w-[80%] rounded-(--radius-card) bg-(--bg-inset) px-4 py-2.5 text-[15px] whitespace-pre-wrap break-words">
+      <div className="selectable max-w-[80%] rounded-card bg-(--bg-inset) px-4 py-2.5 text-[15px] whitespace-pre-wrap wrap-break-word">
         {text}
       </div>
     </div>

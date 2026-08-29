@@ -1,0 +1,12 @@
+{
+  "id": "empty-stream",
+  "title": "连上了但一个内容帧都没有",
+  "match": [
+    "空流"
+  ],
+  "rounds": [
+    {
+      "finishReason": "stop"
+    }
+  ]
+}

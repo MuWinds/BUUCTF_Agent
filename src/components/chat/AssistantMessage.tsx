@@ -43,7 +43,7 @@ export const AssistantMessage = memo(
         )}
 
         {message.status === 'error' && (
-          <div className="mt-2 flex items-start gap-2 rounded-(--radius-card) border border-(--color-danger)/30 bg-(--color-danger)/10 px-3 py-2 text-sm">
+          <div className="mt-2 flex items-start gap-2 rounded-card border border-(--color-danger)/30 bg-(--color-danger)/10 px-3 py-2 text-sm">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-(--color-danger)" />
             <span className="selectable text-(--fg-muted)">{message.error}</span>
           </div>
@@ -69,13 +69,13 @@ export const AssistantMessage = memo(
 /** 流式光标。用 CSS 动画而非 JS 定时器，不占主线程。 */
 function Caret() {
   return (
-    <span className="ml-0.5 inline-block h-[1.1em] w-[2px] translate-y-[0.2em] animate-pulse bg-(--color-accent)" />
+    <span className="ml-0.5 inline-block h-[1.1em] w-0.5 translate-y-[0.2em] animate-pulse bg-accent" />
   );
 }
 
 function Spinner() {
   return (
-    <span className="size-3 animate-spin rounded-full border-[1.5px] border-(--border-strong) border-t-(--color-accent)" />
+    <span className="size-3 animate-spin rounded-full border-[1.5px] border-(--border-strong) border-t-accent" />
   );
 }
 

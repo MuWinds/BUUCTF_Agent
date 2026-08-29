@@ -13,7 +13,9 @@ mod commands;
 mod persist;
 mod secret;
 mod state;
-mod tools;
+// 对外可见仅为了让 `tests/e2e.rs` 能装配一份真实的工具注册表。
+// 端到端测试若改用桩工具就失去意义，而工具实现按架构约定必须留在应用层。
+pub mod tools;
 
 /// 启动 Tauri 应用。
 ///

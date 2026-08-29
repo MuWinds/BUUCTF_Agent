@@ -1,0 +1,57 @@
+{
+  "id": "tool-failure",
+  "title": "工具失败后模型自我纠正",
+  "match": [
+    "不存在",
+    "失败"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "我读一下配置文件。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_read_bad",
+          "name": "Read",
+          "arguments": "{\"path\": \"config/settings.yaml\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 820,
+        "completion_tokens": 22,
+        "total_tokens": 842
+      }
+    },
+    {
+      "content": [
+        "文件不存在，换成读 README。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_read_ok",
+          "name": "Read",
+          "arguments": "{\"path\": \"README.md\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 880,
+        "completion_tokens": 26,
+        "total_tokens": 906
+      }
+    },
+    {
+      "content": [
+        "这个仓库没有 yaml 配置，说明都在 README 里。"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 1200,
+        "completion_tokens": 24,
+        "total_tokens": 1224
+      }
+    }
+  ]
+}

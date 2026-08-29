@@ -1,0 +1,58 @@
+{
+  "id": "tool-edit",
+  "title": "Read 后 Edit，产出彩色 diff",
+  "match": [
+    "改一下",
+    "修改",
+    "edit"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "先读 `src/app.ts` 确认原文。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_read_2",
+          "name": "Read",
+          "arguments": "{\"path\": \"src/app.ts\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 840,
+        "completion_tokens": 24,
+        "total_tokens": 864
+      }
+    },
+    {
+      "content": [
+        "现在改问候语。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_edit_1",
+          "name": "Edit",
+          "arguments": "{\"path\": \"src/app.ts\", \"old_string\": \"const GREETING = 'hello world';\", \"new_string\": \"const GREETING = '你好，世界';\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 1120,
+        "completion_tokens": 58,
+        "total_tokens": 1178
+      }
+    },
+    {
+      "content": [
+        "改好了，问候语已替换为中文。"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 1310,
+        "completion_tokens": 18,
+        "total_tokens": 1328
+      }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "id": "tool-read",
+  "title": "Read 单次调用后总结",
+  "match": [
+    "读一下",
+    "看看 readme",
+    "read"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "我先读一下 `README.md`。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_read_1",
+          "name": "Read",
+          "arguments": "{\"path\": \"README.md\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 820,
+        "completion_tokens": 28,
+        "total_tokens": 848
+      }
+    },
+    {
+      "content": [
+        "读完了。这是 fake-llm 的沙箱工作区，",
+        "内容固定，供自动化测试和手动测试共用。"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 1180,
+        "completion_tokens": 42,
+        "total_tokens": 1222
+      }
+    }
+  ]
+}

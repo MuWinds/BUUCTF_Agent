@@ -28,7 +28,7 @@ export function TitleBar() {
       className="flex h-9 shrink-0 items-center justify-between border-b border-(--border) bg-(--bg-elevated) pl-3 select-none"
     >
       <div data-tauri-drag-region className="flex items-center gap-2 text-xs">
-        <div className="size-2 rounded-full bg-(--color-accent)" />
+        <div className="size-2 rounded-full bg-accent" />
         <span className="font-medium text-(--fg-muted)">Coding Agent</span>
       </div>
 

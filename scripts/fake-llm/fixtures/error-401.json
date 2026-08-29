@@ -1,0 +1,16 @@
+{
+  "id": "error-401",
+  "title": "HTTP 401 错误响应",
+  "match": [
+    "错误401"
+  ],
+  "http": {
+    "status": 401,
+    "body": {
+      "error": {
+        "message": "Incorrect API key provided.",
+        "type": "invalid_request_error"
+      }
+    }
+  }
+}

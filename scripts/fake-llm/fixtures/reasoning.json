@@ -1,0 +1,30 @@
+{
+  "id": "reasoning",
+  "title": "带思维链的回复",
+  "match": [
+    "想一想",
+    "思考",
+    "为什么"
+  ],
+  "rounds": [
+    {
+      "reasoning": [
+        "用户问的是节流为什么放在 Rust 侧。",
+        "关键在于跨进程序列化的次数：",
+        "逐 token 推送会让 IPC 调用次数等于 token 数。",
+        "所以要在产生端聚合，而不是消费端。"
+      ],
+      "content": [
+        "因为**节流必须发生在产生端**。\n\n",
+        "如果逐 token 推送，IPC 调用次数就等于 token 数；",
+        "在前端再做聚合已经晚了 —— 序列化的开销已经付掉了。"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 845,
+        "completion_tokens": 78,
+        "total_tokens": 923
+      }
+    }
+  ]
+}

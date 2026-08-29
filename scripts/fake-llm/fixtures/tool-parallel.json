@@ -1,0 +1,45 @@
+{
+  "id": "tool-parallel",
+  "title": "一轮内并行发起 Glob + Grep",
+  "match": [
+    "找一下",
+    "搜索",
+    "todo"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "我同时列一下文件并搜 TODO。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_glob_1",
+          "name": "Glob",
+          "arguments": "{\"pattern\": \"**/*.ts\"}"
+        },
+        {
+          "id": "call_grep_1",
+          "name": "Grep",
+          "arguments": "{\"pattern\": \"TODO\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 830,
+        "completion_tokens": 44,
+        "total_tokens": 874
+      }
+    },
+    {
+      "content": [
+        "共两个 TypeScript 文件，`util.ts` 和 `notes.md` 里各有待办。"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 1350,
+        "completion_tokens": 30,
+        "total_tokens": 1380
+      }
+    }
+  ]
+}

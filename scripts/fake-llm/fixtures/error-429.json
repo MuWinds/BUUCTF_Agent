@@ -1,0 +1,16 @@
+{
+  "id": "error-429",
+  "title": "HTTP 429 错误响应",
+  "match": [
+    "错误429"
+  ],
+  "http": {
+    "status": 429,
+    "body": {
+      "error": {
+        "message": "Rate limit reached for requests.",
+        "type": "invalid_request_error"
+      }
+    }
+  }
+}
