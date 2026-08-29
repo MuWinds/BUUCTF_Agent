@@ -1,9 +1,0 @@
-openai
-PyYAML
-Jinja2
-json-repair
-mcp
-requests
-typer
-rich
-prompt_toolkit
