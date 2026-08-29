@@ -1,0 +1,25 @@
+[package]
+name = "agent-core"
+version = "0.1.0"
+description = "Coding agent 的可复用核心：OpenAI 兼容流式客户端与轮次循环"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+futures-util = { workspace = true }
+
+# 关闭 default-features 改用 rustls：避免 Windows schannel 对自建 LLM 网关证书链的挑剔
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "stream",
+    "rustls-tls",
+] }
+eventsource-stream = "0.2"
+async-trait = "0.1.92"

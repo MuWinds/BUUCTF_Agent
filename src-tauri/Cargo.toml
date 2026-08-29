@@ -1,0 +1,45 @@
+[package]
+name = "coding-agent"
+version = "0.1.0"
+description = "桌面版通用 Coding Agent"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+# Tauri v2 约定：核心逻辑放 lib，main.rs 只做入口，便于未来接入移动端/测试
+name = "coding_agent_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+agent-core = { path = "../crates/agent-core" }
+
+tauri = { version = "2", features = ["devtools"] }
+tauri-plugin-store = "2"
+tauri-plugin-dialog = "2"
+
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+async-trait = "0.1"
+
+# ripgrep 官方拆出的库：自带 .gitignore 语义、并行遍历、二进制检测
+ignore = "0.4"
+globset = "0.4"
+grep-searcher = "0.1.17"
+grep-regex = "0.1.14"
+grep-matcher = "0.1.9"
+similar = { version = "2.7.0", features = ["inline"] }
+command-group = { version = "5.0.1", features = ["with-tokio"] }
+encoding_rs = "0.8.35"
+keyring = { version = "3.6.3", features = ["windows-native"] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

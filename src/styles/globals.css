@@ -1,0 +1,135 @@
+@import 'tailwindcss';
+
+/* ---------------------------------------------------------------
+   设计 token。Tailwind v4 CSS-first 配置，无需 tailwind.config.js。
+   色彩用 oklch：感知均匀，调明度不会串色相，深浅色主题可共用色相。
+   --------------------------------------------------------------- */
+@theme {
+  /* 中性色阶 —— 略带蓝的冷灰，避免纯黑的廉价感 */
+  --color-base-950: oklch(0.16 0.008 260);
+  --color-base-900: oklch(0.19 0.009 260);
+  --color-base-850: oklch(0.22 0.01 260);
+  --color-base-800: oklch(0.26 0.011 260);
+  --color-base-700: oklch(0.33 0.012 260);
+  --color-base-600: oklch(0.44 0.013 260);
+  --color-base-500: oklch(0.56 0.014 260);
+  --color-base-400: oklch(0.68 0.012 260);
+  --color-base-300: oklch(0.8 0.009 260);
+  --color-base-200: oklch(0.89 0.006 260);
+  --color-base-100: oklch(0.95 0.004 260);
+
+  /* 强调色 —— 青蓝，用于焦点、链接、进行中状态 */
+  --color-accent: oklch(0.72 0.14 220);
+  --color-accent-dim: oklch(0.55 0.11 220);
+
+  /* 语义色 */
+  --color-ok: oklch(0.74 0.16 155);
+  --color-warn: oklch(0.79 0.15 75);
+  --color-danger: oklch(0.68 0.19 22);
+
+  /* diff 专用 —— 与 ok/danger 同色相但低饱和，大面积铺底不刺眼 */
+  --color-diff-add: oklch(0.74 0.16 155);
+  --color-diff-del: oklch(0.68 0.19 22);
+
+  --font-sans: 'Inter', 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+
+  --radius-card: 0.625rem;
+}
+
+/* ---------------------------------------------------------------
+   语义变量。深色为默认，浅色作为覆盖。
+   组件只用这层语义名，不直接引用色阶 —— 换主题时改这里即可。
+   --------------------------------------------------------------- */
+:root {
+  --bg: var(--color-base-950);
+  --bg-elevated: var(--color-base-900);
+  --bg-inset: var(--color-base-850);
+  --border: var(--color-base-800);
+  --border-strong: var(--color-base-700);
+  --fg: var(--color-base-100);
+  --fg-muted: var(--color-base-400);
+  --fg-subtle: var(--color-base-500);
+
+  color-scheme: dark;
+}
+
+:root[data-theme='light'] {
+  --bg: var(--color-base-100);
+  --bg-elevated: oklch(1 0 0);
+  --bg-inset: var(--color-base-200);
+  --border: var(--color-base-200);
+  --border-strong: var(--color-base-300);
+  --fg: var(--color-base-950);
+  --fg-muted: var(--color-base-600);
+  --fg-subtle: var(--color-base-500);
+
+  color-scheme: light;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    /* 桌面应用不该有文本选中的网页感，仅在内容区放开 */
+    user-select: none;
+    overflow: hidden;
+  }
+
+  /* 内容区恢复可选中 */
+  .selectable {
+    user-select: text;
+    cursor: text;
+  }
+
+  /*
+   * 长会话性能：让浏览器跳过屏幕外消息的渲染与布局。
+   *
+   * 用它而不是虚拟滚动库，是因为消息高度是动态的（工具卡片可展开、
+   * diff 与终端输出高度差异极大），虚拟滚动需要测量回调，展开时会跳动。
+   * contain-intrinsic-size 给出高度估计值，避免滚动条长度剧烈抖动。
+   */
+  .offscreen-skip {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 120px;
+  }
+
+  /* 细滚动条，贴合桌面应用观感 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-base-600);
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+}
