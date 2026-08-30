@@ -39,7 +39,21 @@ grep-matcher = "0.1.9"
 similar = { version = "2.7.0", features = ["inline"] }
 command-group = { version = "5.0.1", features = ["with-tokio"] }
 encoding_rs = "0.8.35"
+
+# keyring 的凭据后端必须按平台显式启用。
+# 漏掉某个平台不会有任何编译或运行期报错 —— 它会静默退回非持久化实现，
+# 表现为「能存能读，重启后密钥消失」。三处版本号需同步升级。
+[target.'cfg(windows)'.dependencies]
 keyring = { version = "3.6.3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6.3", features = ["apple-native"] }
+
+# 选 Secret Service（GNOME Keyring / KWallet）而不是 linux-native：
+# 后者走内核 keyutils，密钥活不过重启，正是这里要避免的。
+# crypto-rust 而非 crypto-openssl，省掉 OpenSSL 的系统构建依赖。
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6.3", features = ["sync-secret-service", "crypto-rust"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"
