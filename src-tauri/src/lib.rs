@@ -52,6 +52,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::chat::send_message,
             commands::chat::cancel_turn,
+            commands::chat::preempt_turn,
             commands::chat::rewind_session,
             commands::chat::get_session,
             commands::chat::list_sessions,

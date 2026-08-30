@@ -5,6 +5,36 @@ import { errorMessage } from '@/lib/events';
 
 const STORE_FILE = 'settings.json';
 const KEY = 'llm';
+const UI_KEY = 'ui';
+
+/** 每个按键组合可以绑定的动作。 */
+export type KeyAction = 'send' | 'newline' | 'queue' | 'preempt';
+export type KeyCombo = 'enter' | 'shift_enter' | 'ctrl_enter';
+
+export interface Keybindings {
+  enter: KeyAction;
+  shift_enter: KeyAction;
+  ctrl_enter: KeyAction;
+}
+
+export const DEFAULT_KEYBINDINGS: Keybindings = {
+  enter: 'send',
+  shift_enter: 'newline',
+  ctrl_enter: 'queue',
+};
+
+export const KEY_COMBO_LABEL: Record<KeyCombo, string> = {
+  enter: 'Enter',
+  shift_enter: 'Shift + Enter',
+  ctrl_enter: 'Ctrl + Enter',
+};
+
+export const KEY_ACTION_LABEL: Record<KeyAction, string> = {
+  send: '发送',
+  newline: '换行',
+  queue: '排队发送',
+  preempt: '插队发送',
+};
 
 /** 落盘的配置不含 api_key —— 密钥在 Rust 侧走系统凭据管理器。 */
 type StoredConfig = Omit<LlmConfig, 'api_key'>;
@@ -18,18 +48,32 @@ interface ConfigState {
   testResult: { ok: boolean; message: string } | null;
   /** 密钥未能存入系统凭据管理器时的提示。 */
   keyWarning: string | null;
+  /** 发送相关快捷键。纯前端配置，不传给 Rust 侧。 */
+  keybindings: Keybindings;
   init: () => Promise<void>;
   update: (patch: Partial<LlmConfig>) => void;
   save: () => Promise<boolean>;
   test: () => Promise<void>;
   /** 从系统凭据管理器中删除密钥。 */
   clearKey: () => Promise<void>;
+  setKeybinding: (combo: KeyCombo, action: KeyAction) => void;
 }
 
 let store: Store | null = null;
 async function getStore() {
   store ??= await load(STORE_FILE, { autoSave: false });
   return store;
+}
+
+/** 把快捷键设置单独落盘。改一项存一次，无需等设置页点「保存」。 */
+async function persistKeybindings(keybindings: Keybindings) {
+  try {
+    const s = await getStore();
+    await s.set(UI_KEY, { keybindings });
+    await s.save();
+  } catch (e) {
+    console.warn('保存快捷键设置失败', e);
+  }
 }
 
 export const useConfig = create<ConfigState>((set, get) => ({
@@ -47,11 +91,13 @@ export const useConfig = create<ConfigState>((set, get) => ({
   testing: false,
   testResult: null,
   keyWarning: null,
+  keybindings: DEFAULT_KEYBINDINGS,
 
   /** 从磁盘和凭据管理器恢复配置。启动时调用一次。 */
   async init() {
     // Rust 侧启动时已从凭据管理器读出了 api_key
     let config = await getLlmConfig();
+    let keybindings = DEFAULT_KEYBINDINGS;
 
     try {
       const s = await getStore();
@@ -74,11 +120,16 @@ export const useConfig = create<ConfigState>((set, get) => ({
         // 让用户在设置页里看到问题而不是发消息时才炸
         await setLlmConfig(config).catch(() => undefined);
       }
+
+      const ui = await s.get<{ keybindings?: Keybindings }>(UI_KEY);
+      if (ui?.keybindings) {
+        keybindings = { ...DEFAULT_KEYBINDINGS, ...ui.keybindings };
+      }
     } catch (e) {
       console.warn('读取本地配置失败，使用默认值', e);
     }
 
-    set({ config, loaded: true });
+    set({ config, keybindings, loaded: true });
   },
 
   update(patch) {
@@ -130,5 +181,11 @@ export const useConfig = create<ConfigState>((set, get) => ({
       testResult: null,
       keyWarning: null,
     }));
+  },
+
+  setKeybinding(combo, action) {
+    const keybindings = { ...get().keybindings, [combo]: action };
+    set({ keybindings });
+    void persistKeybindings(keybindings);
   },
 }));

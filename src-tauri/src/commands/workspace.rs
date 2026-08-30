@@ -33,6 +33,7 @@ pub async fn set_workspace(state: State<'_, AppState>, path: String) -> Result<S
     let cleaned = strip_unc_prefix(&absolute);
 
     state.cancel_active().await;
+    let _turn_guard = state.turn_gate.lock().await;
     // 旧工作区的读取记录对新工作区毫无意义，留着只会让「编辑前须读」的校验失准
     state.read_registry.clear();
     *state.workspace_root.write().await = cleaned.clone();

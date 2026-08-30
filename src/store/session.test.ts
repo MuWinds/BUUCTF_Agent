@@ -27,6 +27,7 @@ const ipc = vi.hoisted(() => {
     steps: [] as unknown[],
     sentTexts: [] as string[],
     cancelled: 0,
+    preempted: 0,
     created: 0,
     deleted: [] as string[],
     switched: [] as string[],
@@ -47,6 +48,9 @@ vi.mock('@/lib/ipc', () => ({
   },
   cancelTurn: async () => {
     ipc.cancelled += 1;
+  },
+  preemptTurn: async () => {
+    ipc.preempted += 1;
   },
   getSession: async () => ipc.sessionEntries,
   listSessions: async () => ipc.sessionList,
@@ -97,6 +101,7 @@ beforeEach(() => {
   ipc.steps = [];
   ipc.sentTexts = [];
   ipc.cancelled = 0;
+  ipc.preempted = 0;
   ipc.created = 0;
   ipc.deleted = [];
   ipc.switched = [];
@@ -110,6 +115,10 @@ beforeEach(() => {
     restored: false,
     sessions: [],
     currentSessionId: '',
+    queue: [],
+    activeAssistantId: null,
+    activeTurnId: null,
+    preemptSignaled: false,
   });
 });
 
@@ -345,6 +354,46 @@ describe('useSession.send', () => {
 
     expect(ipc.sentTexts).toEqual([]);
     expect(useSession.getState().messages).toEqual([]);
+  });
+
+  it('流式进行中排队：立即落 pending 气泡，不打断当前回复', async () => {
+    useSession.setState({ streaming: true });
+    await useSession.getState().send('第二条', 'queue');
+
+    const s = useSession.getState();
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0]).toMatchObject({ role: 'user', pending: 'queue' });
+    expect(s.messages[0]?.segments).toEqual([{ kind: 'text', text: '第二条' }]);
+    expect(s.queue).toHaveLength(1);
+    expect(s.streaming).toBe(true);
+    // 还没交给后端，等当前轮次结束才发
+    expect(ipc.sentTexts).toEqual([]);
+  });
+
+  it('流式进行中插队：turn_start 到达前入队，到达后补发 preemptTurn 信号', async () => {
+    const seen: number[] = [];
+    let queuedOnce = false;
+    ipc.steps = [
+      () => {
+        // 在 turn_start 事件到达之前插入插队消息 —— turn_id 未知，信号只能延后
+        if (!queuedOnce) {
+          queuedOnce = true;
+          void useSession.getState().send('急事', 'preempt');
+        }
+        seen.push(ipc.preempted);
+      },
+      turnStart,
+      delta('第一轮'),
+      turnEnd,
+    ];
+    const first = useSession.getState().send('第一条');
+
+    expect(seen[0]).toBe(0);
+
+    await first;
+    // turn_start 到达时补发插队信号，且队列自动消化插队消息
+    expect(ipc.preempted).toBe(1);
+    expect(ipc.sentTexts).toEqual(['第一条', '急事']);
   });
 });
 

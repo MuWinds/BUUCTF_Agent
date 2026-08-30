@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { GitBranch } from 'lucide-react';
 import { useSession, type Message } from '@/store/session';
+import { KEY_ACTION_LABEL, KEY_COMBO_LABEL, useConfig } from '@/store/config';
 import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
 
@@ -104,6 +105,13 @@ function SummaryNotice({ message }: { message: { summary?: string } }) {
 }
 
 function EmptyState() {
+  const keybindings = useConfig((s) => s.keybindings);
+  const hint = [
+    `${KEY_COMBO_LABEL.enter} ${KEY_ACTION_LABEL[keybindings.enter]}`,
+    `${KEY_COMBO_LABEL.shift_enter} ${KEY_ACTION_LABEL[keybindings.shift_enter]}`,
+    `${KEY_COMBO_LABEL.ctrl_enter} ${KEY_ACTION_LABEL[keybindings.ctrl_enter]}`,
+  ].join(' · ');
+
   return (
     <div className="flex flex-1 items-center justify-center">
       <div className="text-center">
@@ -111,7 +119,7 @@ function EmptyState() {
           {'>_'}
         </div>
         <p className="text-sm text-(--fg-muted)">开始一段对话</p>
-        <p className="mt-1 text-xs text-(--fg-subtle)">Enter 发送 · Shift + Enter 换行</p>
+        <p className="mt-1 text-xs text-(--fg-subtle)">{hint}</p>
       </div>
     </div>
   );

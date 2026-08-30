@@ -28,7 +28,7 @@ export const AssistantMessage = memo(
             const isLast = i === message.segments.length - 1;
             return (
               <div key={i}>
-                <RichText text={segment.text} />
+                <RichText text={segment.text} streaming={streaming} />
                 {streaming && isLast && <Caret />}
               </div>
             );

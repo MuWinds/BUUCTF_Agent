@@ -9,6 +9,13 @@ export const UserMessage = memo(function UserMessage({ message }: { message: Mes
     <div className="flex justify-end px-6 py-4">
       <div className="selectable max-w-[80%] rounded-card bg-(--bg-inset) px-4 py-2.5 text-[15px] whitespace-pre-wrap wrap-break-word">
         {text}
+        {message.pending && (
+          <div className="mt-1.5 text-right text-[11px] text-(--fg-subtle)">
+            {message.pending === 'preempt'
+              ? '插队中：当前工具调用结束后发送'
+              : '排队中：当前回复结束后发送'}
+          </div>
+        )}
       </div>
     </div>
   );

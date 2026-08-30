@@ -27,6 +27,8 @@ export function sendMessage(text: string, onEvent: (e: AgentEvent) => void) {
 }
 
 export const cancelTurn = () => invoke<void>('cancel_turn');
+/** 通知后端「插队」：指定轮次在当前 tool call 结束后停下，把位置让给新消息。 */
+export const preemptTurn = (turnId: string) => invoke<void>('preempt_turn', { turnId });
 /** 读取已保存的会话，用于启动时还原界面。 */
 export const getSession = () => invoke<Session>('get_session');
 /** 列出当前工作区的全部会话摘要，供列表页渲染。 */

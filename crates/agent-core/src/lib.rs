@@ -15,6 +15,7 @@
 //! ```no_run
 //! # use agent_core::{LlmClient, LlmConfig, ThrottledSink, EventSink, AgentEvent,
 //! #                  Registry, Session, ToolEnv, turn};
+//! # use std::sync::atomic::AtomicBool;
 //! # use std::sync::Arc;
 //! # use tokio_util::sync::CancellationToken;
 //! struct Printer;
@@ -34,10 +35,11 @@
 //!
 //! let mut sink = ThrottledSink::new(Arc::new(Printer), "turn-1");
 //! let env = ToolEnv { workspace_root: std::path::PathBuf::from(".") };
+//! let preempt = AtomicBool::new(false);
 //!
 //! let outcome = turn::run(
 //!     &client, &config, &mut session, &Registry::new(), &env,
-//!     &mut sink, CancellationToken::new(),
+//!     &mut sink, CancellationToken::new(), &preempt,
 //! ).await;
 //! println!("\n结束原因：{}", outcome.finish_reason);
 //! # Ok(())

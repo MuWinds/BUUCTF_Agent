@@ -1,6 +1,7 @@
 //! 应用全局状态。
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use agent_core::{LlmClient, LlmConfig, Registry, Result, Session};
@@ -93,6 +94,18 @@ pub fn system_prompt(workspace_root: &Path, registry: &agent_core::Registry) -> 
 /// 会话，正在编辑的那段由 `session_id` 指出。新建/切换会话时替换它。
 pub const DEFAULT_SESSION_ID: &str = "default";
 
+/// 一个进行中轮次的可中断状态。
+///
+/// `cancel` 立即中止（流式与工具都会响应），`preempt` 是「插队」信号：
+/// 只让轮次在当前 tool call 结束后停在一个干净边界，不打断正在执行的命令。
+/// `turn_id` 用来校验插队信号是不是发给这一轮 —— 排队会连续启动多个轮次，
+/// 迟到的信号不能误伤下一轮。
+pub struct ActiveTurn {
+    pub turn_id: String,
+    pub cancel: CancellationToken,
+    pub preempt: Arc<AtomicBool>,
+}
+
 pub struct AppState {
     pub config: RwLock<LlmConfig>,
     pub client: LlmClient,
@@ -108,8 +121,11 @@ pub struct AppState {
     pub session_id: RwLock<String>,
     /// 会话文件所在目录。
     pub app_data: PathBuf,
-    /// 当前进行中轮次的取消令牌。新轮次开始时替换，取消时触发。
-    pub active_turn: Mutex<Option<CancellationToken>>,
+    /// 当前进行中轮次的取消与插队信号。新轮次开始时替换，取消时触发。
+    pub active_turn: Mutex<Option<ActiveTurn>>,
+    /// 轮次串行化锁：同一时刻只允许一个 `send_message` 在跑，
+    /// 会话切换/新建等需要改动会话的命令也先拿它，避免读到轮次中的半成品。
+    pub turn_gate: Mutex<()>,
 }
 
 impl AppState {
@@ -132,13 +148,27 @@ impl AppState {
             session_id: RwLock::new(DEFAULT_SESSION_ID.to_string()),
             app_data,
             active_turn: Mutex::new(None),
+            turn_gate: Mutex::new(()),
         })
     }
 
     /// 取消正在进行的轮次（如果有）。
     pub async fn cancel_active(&self) {
-        if let Some(token) = self.active_turn.lock().await.take() {
-            token.cancel();
+        if let Some(turn) = self.active_turn.lock().await.take() {
+            turn.cancel.cancel();
+        }
+    }
+
+    /// 通知指定轮次「插队」：在下一个安全边界（当前 tool call 结束后）停下。
+    ///
+    /// 只有 `turn_id` 对得上的轮次才响应 —— 迟到信号在目标轮次结束后到来时，
+    /// 不该打到排队接续的新一轮上。
+    pub async fn preempt_active(&self, turn_id: &str) {
+        let guard = self.active_turn.lock().await;
+        if let Some(turn) = guard.as_ref() {
+            if turn.turn_id == turn_id {
+                turn.preempt.store(true, Ordering::SeqCst);
+            }
         }
     }
 

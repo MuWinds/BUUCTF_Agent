@@ -3,6 +3,7 @@
 //! 消息历史通过 `&mut Vec<Message>` 传入而非由 core 持有：调用方通常把历史
 //! 放在锁里，让 core 持有会强迫它跨整个轮次持锁，配置读取之类的操作就会被阻塞。
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 
 use futures_util::{Stream, StreamExt};
@@ -67,6 +68,13 @@ impl UsageTally {
 ///
 /// 错误不向上抛而是转成 `AgentEvent::Error` —— 流一旦开始，调用方的入口函数
 /// 往往早已返回，UI 只能通过事件流感知失败。
+///
+/// `preempt` 是「插队」信号：只在安全边界检查 —— 当前 tool call 执行完、
+/// 下一轮请求开始前 —— 不打断正在执行的工具，与 `cancel` 的立即中止相区别。
+///
+/// 参数多达 8 个：每个都是轮次必需的输入，拆成结构体反而要无谓地定义
+/// 新类型、所有调用点同步改。7 个的阈值拦不住这里，就地允许并保持扁平签名。
+#[allow(clippy::too_many_arguments)]
 pub async fn run(
     client: &LlmClient,
     config: &LlmConfig,
@@ -75,6 +83,7 @@ pub async fn run(
     env: &ToolEnv,
     sink: &mut ThrottledSink,
     cancel: CancellationToken,
+    preempt: &AtomicBool,
 ) -> TurnOutcome {
     let started = Instant::now();
 
@@ -89,6 +98,16 @@ pub async fn run(
     session.start_assistant();
 
     loop {
+        // 插队信号可能在轮到我们之前就来了（竞态），开场先查一次。
+        if preempt.load(Ordering::SeqCst) {
+            session.set_status(Status::Done);
+            session.drop_empty_assistant();
+            let outcome = TurnOutcome {
+                finish_reason: "preempted".into(),
+            };
+            return finish(sink, started, usage, config, outcome);
+        }
+
         let messages = session.to_messages();
 
         let step = match request(
@@ -150,6 +169,15 @@ pub async fn run(
                 session.set_status(Status::Error);
                 let outcome = TurnOutcome {
                     finish_reason: "error".into(),
+                };
+                return finish(sink, started, usage, config, outcome);
+            }
+
+            // 插队：当前 tool call 已完整落地，到此为止，不再进入下一轮请求。
+            if preempt.load(Ordering::SeqCst) {
+                session.set_status(Status::Done);
+                let outcome = TurnOutcome {
+                    finish_reason: "preempted".into(),
                 };
                 return finish(sink, started, usage, config, outcome);
             }

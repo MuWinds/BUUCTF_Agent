@@ -1,6 +1,7 @@
 //! 对话相关命令。
 
 use agent_core::{compact, turn, AgentEvent, Error, Result, Session, ThrottledSink, ToolEnv};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::State;
@@ -8,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::channel_sink::ChannelSink;
 use crate::persist::{self, SessionList};
-use crate::state::{system_prompt, AppState, DEFAULT_SESSION_ID};
+use crate::state::{system_prompt, ActiveTurn, AppState, DEFAULT_SESSION_ID};
 
 /// 发送一条用户消息并驱动一个轮次。
 ///
@@ -34,8 +35,10 @@ pub async fn send_message(
 
     tracing::info!(model = %config.model, endpoint = %config.endpoint(), "开始轮次");
 
-    // 同一时刻只允许一个轮次
+    // 旧行为：新消息到来时中止进行中的轮次。随后再拿串行锁，
+    // 等被中止的轮次真正写回会话后才继续 —— 不会读到半成品。
     state.cancel_active().await;
+    let _turn_guard = state.turn_gate.lock().await;
 
     // 先取工作区：系统提示词要读它及其父目录的 AGENTS.md / CLAUDE.md
     let workspace_root = state.workspace_root.read().await.clone();
@@ -50,12 +53,17 @@ pub async fn send_message(
         guard.clone()
     };
 
+    let turn_id = uuid::Uuid::new_v4().to_string();
     let cancel = CancellationToken::new();
-    *state.active_turn.lock().await = Some(cancel.clone());
+    let preempt = Arc::new(AtomicBool::new(false));
+    *state.active_turn.lock().await = Some(ActiveTurn {
+        turn_id: turn_id.clone(),
+        cancel: cancel.clone(),
+        preempt: preempt.clone(),
+    });
 
     let env = ToolEnv { workspace_root };
 
-    let turn_id = uuid::Uuid::new_v4().to_string();
     let mut sink = ThrottledSink::new(Arc::new(ChannelSink(on_event)), turn_id.clone());
 
     // 长对话自动压缩：历史接近窗口上限时，先把最老的一段折叠成摘要，
@@ -86,6 +94,7 @@ pub async fn send_message(
         &env,
         &mut sink,
         cancel,
+        &preempt,
     )
     .await;
 
@@ -130,6 +139,7 @@ pub async fn switch_session(state: State<'_, AppState>, id: String) -> Result<()
         .ok_or_else(|| Error::Config(format!("会话 {id} 不存在")))?;
 
     state.cancel_active().await;
+    let _turn_guard = state.turn_gate.lock().await;
     *state.session.lock().await = session;
     *state.session_id.write().await = id;
     // 会话随工作区走，读取记录同样是工作区级的，切换会话不需要清它
@@ -140,6 +150,7 @@ pub async fn switch_session(state: State<'_, AppState>, id: String) -> Result<()
 #[tauri::command]
 pub async fn new_session(state: State<'_, AppState>) -> Result<()> {
     state.cancel_active().await;
+    let _turn_guard = state.turn_gate.lock().await;
     *state.session.lock().await = Session::default();
     *state.session_id.write().await = persist::new_id();
     Ok(())
@@ -156,6 +167,7 @@ pub async fn delete_session(state: State<'_, AppState>, id: String) -> Result<()
     let current = state.session_id.read().await.clone();
     if current == id {
         state.cancel_active().await;
+        let _turn_guard = state.turn_gate.lock().await;
         *state.session.lock().await = Session::default();
         *state.session_id.write().await = DEFAULT_SESSION_ID.to_string();
     }
@@ -166,6 +178,17 @@ pub async fn delete_session(state: State<'_, AppState>, id: String) -> Result<()
 #[tauri::command]
 pub async fn cancel_turn(state: State<'_, AppState>) -> Result<()> {
     state.cancel_active().await;
+    Ok(())
+}
+
+/// 通知当前轮次「插队」：在当前 tool call 结束后停下，把位置让给新消息。
+///
+/// 与 `cancel_turn` 不同，它不打断正在执行的工具，只阻止轮次继续进入
+/// 下一轮请求。排队/插队的消息由前端在轮次结束后重新触发 `send_message`。
+/// `turn_id` 由前端从 `turn_start` 事件里取回，防止迟到信号误伤下一轮。
+#[tauri::command]
+pub async fn preempt_turn(state: State<'_, AppState>, turn_id: String) -> Result<()> {
+    state.preempt_active(&turn_id).await;
     Ok(())
 }
 
@@ -204,6 +227,7 @@ pub async fn rewind_session(state: State<'_, AppState>, entry_index: usize) -> R
     .map_err(|e| Error::Internal(format!("保存旧分支失败：{e}")))?;
 
     state.cancel_active().await;
+    let _turn_guard = state.turn_gate.lock().await;
     *state.session.lock().await = full;
     // 当前会话 id 不变 —— 用户还在同一段历史里，只是倒回去重走
     state.persist().await;

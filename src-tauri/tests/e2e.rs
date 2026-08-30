@@ -14,6 +14,7 @@
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -166,6 +167,7 @@ async fn run_with(
         workspace_root: dir.path().to_path_buf(),
     };
     let mut sink = ThrottledSink::new(Arc::new(recorder.clone()), "turn-e2e");
+    let preempt = AtomicBool::new(false);
 
     let outcome = agent_core::turn::run(
         &LlmClient::new().expect("创建 HTTP 客户端失败"),
@@ -175,6 +177,7 @@ async fn run_with(
         &env,
         &mut sink,
         cancel,
+        &preempt,
     )
     .await;
 
