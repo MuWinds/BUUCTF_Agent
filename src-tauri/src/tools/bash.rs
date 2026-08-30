@@ -53,6 +53,16 @@ impl Tool for BashTool {
          它们比 shell 命令更快且输出更适合阅读。"
     }
 
+    fn prompt_contribution(&self) -> agent_core::PromptContribution {
+        agent_core::PromptContribution {
+            snippet: "执行 shell 命令，返回合并后的 stdout 与 stderr。",
+            guidelines: &[
+                "需要运行命令、编译、测试时用 Bash。",
+                "查找文件用 Glob、搜索内容用 Grep、读文件用 Read —— 都比 Bash 更快且输出更适合阅读。",
+            ],
+        }
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

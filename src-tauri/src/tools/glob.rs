@@ -36,6 +36,13 @@ impl Tool for GlobTool {
          需要按文件内容搜索时用 Grep，不要用本工具。"
     }
 
+    fn prompt_contribution(&self) -> agent_core::PromptContribution {
+        agent_core::PromptContribution {
+            snippet: "按文件名通配符查找文件，返回路径列表。",
+            guidelines: &["按文件名找文件用 Glob，不要用 Bash 的 ls/find。"],
+        }
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

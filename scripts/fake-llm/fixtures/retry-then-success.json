@@ -1,0 +1,16 @@
+{
+  "id": "retry-then-success",
+  "title": "失败两次后成功（重试）",
+  "httpBeforeOk": {
+    "status": 503,
+    "body": { "error": { "message": "upstream temporarily unavailable" } },
+    "failures": 2
+  },
+  "rounds": [
+    {
+      "content": ["重试后终于成功了。"],
+      "finishReason": "stop",
+      "usage": { "prompt_tokens": 18, "completion_tokens": 6, "total_tokens": 24 }
+    }
+  ]
+}

@@ -10,31 +10,12 @@ import { flushFrames, resetFrames } from '@/test/setup';
  */
 type Step = AgentEvent | 'frame' | (() => void);
 
-const ipc = vi.hoisted(() => {
-  type Summary = {
-    id: string;
-    title: string;
-    workspace: string;
-    model: string;
-    created_at: number;
-    updated_at: number;
-    message_count: number;
-  };
-  type Entry =
-    | { role: 'system' | 'user' | 'summary'; text: string }
-    | { role: 'assistant'; segments: { kind: 'text'; text: string }[]; status: string };
-  return {
-    steps: [] as unknown[],
-    sentTexts: [] as string[],
-    cancelled: 0,
-    created: 0,
-    deleted: [] as string[],
-    switched: [] as string[],
-    rewinded: [] as number[],
-    sessionEntries: { entries: [] as Entry[] },
-    sessionList: { current_id: '', sessions: [] as Summary[] },
-  };
-});
+const ipc = vi.hoisted(() => ({
+  steps: [] as unknown[],
+  sentTexts: [] as string[],
+  cancelled: 0,
+  cleared: 0,
+}));
 
 vi.mock('@/lib/ipc', () => ({
   sendMessage: async (text: string, onEvent: (e: AgentEvent) => void) => {
@@ -48,21 +29,10 @@ vi.mock('@/lib/ipc', () => ({
   cancelTurn: async () => {
     ipc.cancelled += 1;
   },
-  getSession: async () => ipc.sessionEntries,
-  listSessions: async () => ipc.sessionList,
-  switchSession: async (id: string) => {
-    ipc.switched.push(id);
+  clearHistory: async () => {
+    ipc.cleared += 1;
   },
-  newSession: async () => {
-    ipc.created += 1;
-  },
-  deleteSession: async (id: string) => {
-    ipc.deleted.push(id);
-  },
-  rewindSession: async (entryIndex: number) => {
-    ipc.rewinded.push(entryIndex);
-    return ipc.sessionList;
-  },
+  getSession: async () => ({ entries: [] }),
 }));
 
 const { useSession } = await import('./session');
@@ -97,20 +67,8 @@ beforeEach(() => {
   ipc.steps = [];
   ipc.sentTexts = [];
   ipc.cancelled = 0;
-  ipc.created = 0;
-  ipc.deleted = [];
-  ipc.switched = [];
-  ipc.rewinded = [];
-  ipc.sessionList = { current_id: 'cur', sessions: [] };
-  useSession.setState({
-    messages: [],
-    streaming: false,
-    model: '',
-    usage: null,
-    restored: false,
-    sessions: [],
-    currentSessionId: '',
-  });
+  ipc.cleared = 0;
+  useSession.setState({ messages: [], streaming: false, model: '', usage: null, restored: false });
 });
 
 describe('useSession.send', () => {
@@ -348,133 +306,13 @@ describe('useSession.send', () => {
   });
 });
 
-describe('useSession 会话管理', () => {
-  it('refreshSessions 把摘要写入 state 并记下当前会话 id', async () => {
-    ipc.sessionList = {
-      current_id: 'b',
-      sessions: [
-        {
-          id: 'a',
-          title: '旧',
-          workspace: '/w',
-          model: 'm',
-          created_at: 1,
-          updated_at: 2,
-          message_count: 3,
-        },
-        {
-          id: 'b',
-          title: '新',
-          workspace: '/w',
-          model: 'm',
-          created_at: 4,
-          updated_at: 5,
-          message_count: 1,
-        },
-      ],
-    };
+describe('useSession.reset', () => {
+  it('清空界面并通知 Rust 侧丢弃历史', async () => {
+    await run([turnStart, delta('先说点什么'), turnEnd]);
+    await useSession.getState().reset();
 
-    await useSession.getState().refreshSessions();
-
-    expect(useSession.getState().currentSessionId).toBe('b');
-    expect(useSession.getState().sessions).toHaveLength(2);
-    expect(useSession.getState().sessions[1]?.title).toBe('新');
-  });
-
-  it('switchTo 通知 Rust 切换并重拉会话内容', async () => {
-    await useSession.getState().switchTo('a');
-
-    expect(ipc.switched).toEqual(['a']);
-  });
-
-  it('createNew 通知 Rust 新建并清空界面', async () => {
-    await run([turnStart, delta('旧内容'), turnEnd]);
-    await useSession.getState().createNew();
-
-    expect(ipc.created).toBe(1);
+    expect(ipc.cleared).toBe(1);
     expect(useSession.getState().messages).toEqual([]);
-  });
-
-  it('删除当前会话时清空界面，删除非当前会话则保留', async () => {
-    ipc.sessionList = { current_id: 'cur', sessions: [] };
-    await useSession.getState().refreshSessions();
-    await run([turnStart, delta('当前会话内容'), turnEnd]);
-    expect(useSession.getState().currentSessionId).toBe('cur');
-
-    await useSession.getState().remove('cur');
-    expect(ipc.deleted).toEqual(['cur']);
-    expect(useSession.getState().messages).toEqual([]);
-
-    await useSession.getState().remove('other');
-    expect(ipc.deleted).toEqual(['cur', 'other']);
-  });
-
-  it('rewindTo 通知 Rust 截断，并用返回的会话重建界面', async () => {
-    // 后端截断后的会话：system + 保留到分叉点的消息
-    ipc.sessionEntries = {
-      entries: [
-        { role: 'system', text: 'sys' },
-        { role: 'user', text: '第一问' },
-        { role: 'assistant', segments: [{ kind: 'text', text: '第一答' }], status: 'done' },
-      ],
-    };
-    await useSession.getState().rewindTo(2);
-
-    expect(ipc.rewinded).toEqual([2]);
-    const { messages } = useSession.getState();
-    expect(messages).toHaveLength(2);
-    expect(messages[0]?.role).toBe('user');
-    expect(messages[0]?.entryIndex).toBe(1);
-    expect(messages[1]?.entryIndex).toBe(2);
-  });
-
-  it('restore 把 summary 条目还原成摘要气泡', async () => {
-    ipc.sessionEntries = {
-      entries: [
-        { role: 'system', text: 'sys' },
-        { role: 'summary', text: '（历史摘要）' },
-        { role: 'user', text: '继续' },
-      ],
-    };
-    await useSession.getState().restore();
-
-    const { messages } = useSession.getState();
-    expect(messages).toHaveLength(2);
-    expect(messages[0]?.role).toBe('summary');
-    expect(messages[0]?.summary).toBe('（历史摘要）');
-  });
-});
-
-describe('useSession 上下文压缩', () => {
-  it('context_compacted 把历史消息替换成摘要气泡，保留流式占位', async () => {
-    // 先跑一轮造出历史（2 条消息：user + assistant）
-    await run([turnStart, delta('旧回答'), turnEnd]);
-    expect(useSession.getState().messages).toHaveLength(2);
-
-    // 第二轮：压缩事件先到（Rust 侧在 TurnStart 之前发），
-    // 末尾两条是 user + assistant 流式占位，前 2 条历史被压缩
-    ipc.steps = [
-      {
-        type: 'context_compacted',
-        turn_id: 't2',
-        removed_entries: 2,
-        summary: '（压缩摘要）',
-      },
-      turnStart,
-      delta('新回答'),
-      turnEnd,
-    ];
-    await useSession.getState().send('第二条');
-
-    const { messages, streaming } = useSession.getState();
-    expect(streaming).toBe(false);
-    expect(messages).toHaveLength(3);
-    expect(messages[0]?.role).toBe('summary');
-    expect(messages[0]?.summary).toBe('（压缩摘要）');
-    // 末尾两条是刚发的 user 和 assistant 回答
-    expect(messages[1]?.role).toBe('user');
-    expect(messages[1]?.segments[0]).toEqual({ kind: 'text', text: '第二条' });
-    expect(messages[2]?.role).toBe('assistant');
-    expect(messages[2]?.segments[0]).toEqual({ kind: 'text', text: '新回答' });
+    expect(useSession.getState().usage).toBeNull();
   });
 });

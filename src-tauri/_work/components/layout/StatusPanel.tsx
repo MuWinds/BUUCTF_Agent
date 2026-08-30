@@ -1,7 +1,7 @@
 import { useSession } from '@/store/session';
 import { basename, useWorkspace } from '@/store/workspace';
 import { ContextRing } from './ContextRing';
-import { History, Settings2, MessageSquarePlus, FolderOpen } from 'lucide-react';
+import { Settings2, MessageSquarePlus, FolderOpen } from 'lucide-react';
 
 /**
  * 底部状态条：工作区、模型、用量、速度、耗时。
@@ -9,17 +9,11 @@ import { History, Settings2, MessageSquarePlus, FolderOpen } from 'lucide-react'
  * 用量来自服务端 `stream_options.include_usage`；部分兼容网关不返回，
  * 此时这些格子留空而不是显示 0 —— 0 会让人以为真的没消耗 token。
  */
-export function StatusPanel({
-  onOpenSettings,
-  onOpenSessions,
-}: {
-  onOpenSettings: () => void;
-  onOpenSessions: () => void;
-}) {
+export function StatusPanel({ onOpenSettings }: { onOpenSettings: () => void }) {
   const model = useSession((s) => s.model);
   const usage = useSession((s) => s.usage);
   const streaming = useSession((s) => s.streaming);
-  const createNew = useSession((s) => s.createNew);
+  const reset = useSession((s) => s.reset);
   const hasMessages = useSession((s) => s.messages.length > 0);
 
   const workspace = useWorkspace((s) => s.path);
@@ -64,22 +58,13 @@ export function StatusPanel({
         {hasMessages && !streaming && (
           <button
             type="button"
-            onClick={() => void createNew()}
+            onClick={() => void reset()}
             title="新对话"
             className="transition-colors hover:text-(--fg)"
           >
             <MessageSquarePlus className="size-3.5" />
           </button>
         )}
-
-        <button
-          type="button"
-          onClick={onOpenSessions}
-          title="历史会话"
-          className="transition-colors hover:text-(--fg)"
-        >
-          <History className="size-3.5" />
-        </button>
 
         <button
           type="button"

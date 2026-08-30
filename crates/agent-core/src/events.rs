@@ -85,6 +85,30 @@ pub enum AgentEvent {
 
     /// 轮次因错误终止。与 command 返回的 Err 区分：
     /// 流已经开始后出错只能走事件，因为 command 早已返回。
+    /// LLM 请求失败、即将自动重试。UI 据此展示「失败原因 + 第几次重试」，
+    /// 避免在退避等待期间用户以为界面卡死了。
+    Retry {
+        turn_id: String,
+        /// 第几次重试，从 1 开始。
+        attempt: u32,
+        /// 重试上限；`None` 表示无限重试。
+        max_retries: Option<u32>,
+        /// 本次失败的原因（HTTP 状态码 / 网络错误详情）。
+        message: String,
+        /// 距下一次重试的等待毫秒数。
+        retry_after_ms: u64,
+    },
+
+    /// 上下文自动压缩完成。发生在 TurnStart 之前，UI 据此把消息列表里
+    /// 被压缩掉的前 `removed_entries` 条替换成一条摘要气泡。
+    ContextCompacted {
+        turn_id: String,
+        /// 被压缩掉的条目数（= 替换成一条 Summary 的条目数）。
+        removed_entries: usize,
+        /// LLM 生成的摘要正文。
+        summary: String,
+    },
+
     Error {
         turn_id: String,
         code: String,

@@ -79,6 +79,11 @@ impl LlmClient {
             if let Ok(json) = serde_json::to_string(&body) {
                 tracing::debug!("失败请求的消息体：{}", truncate(&json, 4000));
             }
+            // 可重试的状态码（限流 / 服务端故障）交给上层退避重试；
+            // 其余 4xx 是请求本身的问题（密钥、地址、协议），重试无意义，直接报错。
+            if retryable_status(status) {
+                return Err(Error::Retryable(described));
+            }
             return Err(Error::Config(described));
         }
 
@@ -144,6 +149,14 @@ pub enum Probe {
 /// 把服务端错误体翻译成人能看懂的一句话。///
 /// 只给 HTTP 状态码对用户毫无帮助 —— 401 到底是 key 错了还是地址填成了别家，
 /// 得看 body 里的 message。
+/// 这些状态码说明问题在服务端一侧，稍后重试可能成功；其余 4xx 重试也白搭。
+fn retryable_status(status: reqwest::StatusCode) -> bool {
+    matches!(
+        status.as_u16(),
+        408 | 425 | 429 | 500 | 501 | 502 | 503 | 504
+    )
+}
+
 fn describe_api_error(status: reqwest::StatusCode, body: &str) -> String {
     let detail = serde_json::from_str::<ApiErrorEnvelope>(body)
         .map(|e| e.error.message)
@@ -174,4 +187,22 @@ fn truncate(text: &str, max: usize) -> String {
     }
     let head: String = text.chars().take(max).collect();
     format!("{head}…[已截断]")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 可重试的状态码只涵盖服务端/网络侧问题；4xx 是请求本身的问题，重试多少次都一样。
+    #[test]
+    fn retryable_status_covers_server_side_failures_only() {
+        for code in [408u16, 425, 429, 500, 501, 502, 503, 504] {
+            let status = reqwest::StatusCode::from_u16(code).unwrap();
+            assert!(retryable_status(status), "{code} 应当可重试");
+        }
+        for code in [400u16, 401, 403, 404, 405, 422, 418] {
+            let status = reqwest::StatusCode::from_u16(code).unwrap();
+            assert!(!retryable_status(status), "{code} 不该重试");
+        }
+    }
 }

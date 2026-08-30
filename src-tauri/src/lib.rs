@@ -10,6 +10,7 @@
 
 mod channel_sink;
 mod commands;
+mod context_files;
 mod persist;
 mod secret;
 mod state;
@@ -35,11 +36,14 @@ pub fn run() {
             let app_data = app.path().app_data_dir()?;
             let state = state::AppState::new(app_data.clone())?;
 
-            // 恢复上次的会话。放在 setup 里同步等待，避免前端在
-            // 会话加载完成前就把界面画成空的。
-            let session = tauri::async_runtime::block_on(persist::load(&app_data));
+            // 恢复当前工作区最近一次会话（并迁移旧版单一会话文件）。
+            // 放在 setup 里同步等待，避免前端在会话加载完成前就把界面画成空的。
             tauri::async_runtime::block_on(async {
+                let workspace = state.workspace_root.read().await.clone();
+                let model = state.config.read().await.model.clone();
+                let (session, session_id) = persist::bootstrap(&app_data, &workspace, &model).await;
                 *state.session.lock().await = session;
+                *state.session_id.write().await = session_id;
             });
 
             app.manage(state);
@@ -48,8 +52,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::chat::send_message,
             commands::chat::cancel_turn,
-            commands::chat::clear_history,
+            commands::chat::rewind_session,
             commands::chat::get_session,
+            commands::chat::list_sessions,
+            commands::chat::switch_session,
+            commands::chat::new_session,
+            commands::chat::delete_session,
             commands::config::get_llm_config,
             commands::config::set_llm_config,
             commands::config::clear_api_key,

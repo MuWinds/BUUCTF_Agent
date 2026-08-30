@@ -15,7 +15,7 @@
         {
           "id": "call_bash_1",
           "name": "Bash",
-          "arguments": "{\"command\": \"echo 第一行 && echo 第二行 && echo 第三行\"}"
+          "arguments": "{\"command\": \"echo 第一行; echo 第二行; echo 第三行\"}"
         }
       ],
       "finishReason": "tool_calls",

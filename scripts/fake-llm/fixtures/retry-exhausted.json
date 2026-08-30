@@ -1,0 +1,8 @@
+{
+  "id": "retry-exhausted",
+  "title": "服务端持续故障（重试耗尽）",
+  "http": {
+    "status": 503,
+    "body": { "error": { "message": "service busy" } }
+  }
+}

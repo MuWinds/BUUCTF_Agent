@@ -1,0 +1,39 @@
+{
+  "id": "tool-text-then-call",
+  "title": "工具调用前的文本必须完整先于卡片",
+  "match": [
+    "分裂文本"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "我先看一下文件。",
+        "稍等。"
+      ],
+      "toolCalls": [
+        {
+          "id": "call_split_1",
+          "name": "Read",
+          "arguments": "{\"path\": \"README.md\"}"
+        }
+      ],
+      "finishReason": "tool_calls",
+      "usage": {
+        "prompt_tokens": 800,
+        "completion_tokens": 20,
+        "total_tokens": 820
+      }
+    },
+    {
+      "content": [
+        "看完了，这就是结论。"
+      ],
+      "finishReason": "stop",
+      "usage": {
+        "prompt_tokens": 1100,
+        "completion_tokens": 10,
+        "total_tokens": 1110
+      }
+    }
+  ]
+}

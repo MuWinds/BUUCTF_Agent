@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { TitleBar } from '@/components/layout/TitleBar';
 import { StatusPanel } from '@/components/layout/StatusPanel';
-import { SessionsPanel } from '@/components/layout/SessionsPanel';
 import { MessageList } from '@/components/chat/MessageList';
 import { Composer } from '@/components/chat/Composer';
 import { Settings } from '@/pages/Settings';
@@ -16,7 +15,6 @@ export default function App() {
   const initWorkspace = useWorkspace((s) => s.init);
   const restoreSession = useSession((s) => s.restore);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [sessionsOpen, setSessionsOpen] = useState(false);
 
   useEffect(() => {
     void init();
@@ -34,12 +32,8 @@ export default function App() {
       <TitleBar />
       <MessageList />
       <Composer />
-      <StatusPanel
-        onOpenSettings={() => setSettingsOpen(true)}
-        onOpenSessions={() => setSessionsOpen(true)}
-      />
+      <StatusPanel onOpenSettings={() => setSettingsOpen(true)} />
       {settingsOpen && <Settings onClose={() => setSettingsOpen(false)} />}
-      {sessionsOpen && <SessionsPanel onClose={() => setSessionsOpen(false)} />}
     </div>
   );
 }

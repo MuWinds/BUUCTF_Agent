@@ -2,12 +2,18 @@
 //!
 //! 用「唯一匹配的旧字符串 → 新字符串」而非行号定位：行号在模型上一次
 //! Read 之后可能已经失效，而带足够上下文的字符串是自校验的。
+//!
+//! 一次调用可含多笔替换（`edits[]`）：每笔的 `old_string` 都匹配**原始**
+//! 文件内容而非前一笔的结果，区间不得重叠 —— 与 pi 的 edit 工具一致，
+//! 减少模型「改一处就重新 Read 一次」的往返。精确匹配失败时回退到模糊
+//! 匹配：全角字符、弯引号、破折号、NBSP 等视觉上一样但字节不同的差异
+//! 会被归一化后比对，命中后仍以原文区间替换，不破坏文件其余部分。
 
 use std::sync::Arc;
 
 use agent_core::{Tool, ToolCtx, ToolError, ToolOutcome, ToolResultBody};
 use async_trait::async_trait;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use super::diff::{self, LineEnding};
@@ -18,14 +24,19 @@ pub struct EditTool {
     pub registry: Arc<ReadRegistry>,
 }
 
+/// 单笔替换。
+#[derive(Deserialize, Serialize)]
+struct EditItem {
+    old_string: String,
+    new_string: String,
+}
+
 #[derive(Deserialize)]
 struct Args {
     path: String,
-    old_string: String,
-    new_string: String,
-    /// 替换全部匹配而非要求唯一匹配。
+    /// 一次调用多笔替换。每笔都匹配原始文件内容，区间不得重叠。
     #[serde(default)]
-    replace_all: bool,
+    edits: Vec<EditItem>,
 }
 
 #[async_trait]
@@ -35,11 +46,25 @@ impl Tool for EditTool {
     }
 
     fn description(&self) -> &'static str {
-        "在文件中把 old_string 替换成 new_string。\
+        "在文件中做精确的字符串替换。\
          编辑前必须先用 Read 读过该文件。\
+         传 edits[] 数组，每笔含 old_string 与 new_string，均匹配原始文件内容，\
+         区间不得重叠；不相邻的多处修改请在一次调用里完成，不要逐笔 Edit。\
          old_string 必须与文件内容**逐字符**一致（含缩进），且在文件中唯一 —— \
-         不唯一时请补充前后文使其唯一，或用 replace_all 替换全部。\
+         不唯一时请补充前后文使其唯一；全角/弯引号等差异会被自动归一化匹配，\
+         但请尽量复制 Read 返回的原文。\
          注意：Read 返回的行号前缀（`   1→`）不是文件内容，不要写进 old_string。"
+    }
+
+    fn prompt_contribution(&self) -> agent_core::PromptContribution {
+        agent_core::PromptContribution {
+            snippet: "在文件中做精确的字符串替换，一次调用可含多笔不相邻的修改（edits[]）。",
+            guidelines: &[
+                "修改文件前必须先 Read 它，old_string 要以 Read 返回的原文为准。",
+                "多笔不相邻的修改用一次 edits[] 调用，不要逐笔 Edit；每笔都匹配原始内容，区间不得重叠。",
+                "old_string 不唯一时补充上下文使其唯一；不要只给一行让模型猜位置。",
+            ],
+        }
     }
 
     fn parameters_schema(&self) -> Value {
@@ -50,20 +75,27 @@ impl Tool for EditTool {
                     "type": "string",
                     "description": "文件路径，相对于工作区根目录"
                 },
-                "old_string": {
-                    "type": "string",
-                    "description": "要被替换的原文，必须逐字符一致且唯一"
-                },
-                "new_string": {
-                    "type": "string",
-                    "description": "替换后的新内容。留空表示删除 old_string"
-                },
-                "replace_all": {
-                    "type": "boolean",
-                    "description": "替换所有匹配处，默认 false（要求唯一匹配）"
+                "edits": {
+                    "type": "array",
+                    "description": "一次调用多笔替换。每笔都匹配原始文件内容而非前一笔的结果，区间不得重叠",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_string": {
+                                "type": "string",
+                                "description": "要被替换的原文，必须逐字符一致且在文件中唯一"
+                            },
+                            "new_string": {
+                                "type": "string",
+                                "description": "替换后的新内容。留空表示删除 old_string"
+                            }
+                        },
+                        "required": ["old_string", "new_string"],
+                        "additionalProperties": false
+                    }
                 }
             },
-            "required": ["path", "old_string", "new_string"],
+            "required": ["path", "edits"],
             "additionalProperties": false
         })
     }
@@ -77,9 +109,24 @@ impl Tool for EditTool {
         let args: Args = serde_json::from_value(args)
             .map_err(|e| ToolError::recoverable(format!("参数不正确：{e}")))?;
 
-        if args.old_string == args.new_string {
+        if args.edits.is_empty() {
             return Err(ToolError::recoverable(
-                "old_string 和 new_string 完全相同，这次编辑没有任何效果。",
+                "edits[] 不能为空：至少提供一笔 old_string + new_string。",
+            ));
+        }
+
+        let edits = args
+            .edits
+            .iter()
+            .map(|i| EditSpec {
+                old: i.old_string.clone(),
+                new: i.new_string.clone(),
+            })
+            .collect::<Vec<_>>();
+
+        if edits.iter().any(|e| e.old == e.new) {
+            return Err(ToolError::recoverable(
+                "某笔替换的 old_string 和 new_string 完全相同，这次编辑没有任何效果。",
             ));
         }
 
@@ -109,10 +156,8 @@ impl Tool for EditTool {
         // 换行符先记下来，写回时原样还原
         let ending = LineEnding::detect(&raw);
         let original = LineEnding::normalize(&raw);
-        let old_norm = LineEnding::normalize(&args.old_string);
-        let new_norm = LineEnding::normalize(&args.new_string);
 
-        let updated = replace(&original, &old_norm, &new_norm, args.replace_all, &shown)?;
+        let updated = apply_edits(&original, &edits, &shown)?;
 
         tokio::fs::write(&full, ending.apply(&updated))
             .await
@@ -127,36 +172,150 @@ impl Tool for EditTool {
     }
 }
 
-/// 执行替换，匹配不唯一或找不到时给出可操作的错误。
-fn replace(
+/// 一笔待应用的替换。
+struct EditSpec {
+    old: String,
+    new: String,
+}
+
+/// 把所有替换应用到原始内容上。
+///
+/// 每笔都在同一份 `original` 上定位（互不干扰），区间两两不得重叠；
+/// 全部定位成功后从后往前替换，避免偏移互相影响。
+fn apply_edits(original: &str, edits: &[EditSpec], shown: &str) -> Result<String, ToolError> {
+    // (start, end, new, fuzzy) 列表；fuzzy 表示该区间经归一化匹配命中
+    let mut located: Vec<(usize, usize, &str, bool)> = Vec::new();
+
+    for (index, edit) in edits.iter().enumerate() {
+        for (start, end, fuzzy) in locate_all(original, &edit.old, shown, index)? {
+            located.push((start, end, &edit.new, fuzzy));
+        }
+    }
+
+    check_no_overlap(&located, shown)?;
+
+    // 从后往前应用，区间互不重叠因此偏移安全
+    let mut updated = original.to_string();
+    for (start, end, new, _) in located.iter().rev() {
+        updated.replace_range(*start..*end, new);
+    }
+
+    let fuzzy_count = located.iter().filter(|(_, _, _, fuzzy)| *fuzzy).count();
+    if fuzzy_count > 0 {
+        tracing::debug!(
+            "`{shown}` 有 {fuzzy_count} 笔替换经模糊匹配，模型给的内容与原文有字符差异"
+        );
+    }
+
+    Ok(updated)
+}
+
+/// 定位一笔替换的全部区间，返回 `(start, end, 是否模糊命中)` 列表。
+///
+/// - 精确匹配唯一 → 那一个区间
+/// - 精确匹配多处 → 报错（edits 模式每笔必须唯一，不提供 replace_all）
+/// - 精确匹配不到 → 回退到归一化模糊匹配（至多一个区间）
+fn locate_all(
     haystack: &str,
     old: &str,
-    new: &str,
-    replace_all: bool,
     shown: &str,
-) -> Result<String, ToolError> {
-    let count = haystack.matches(old).count();
+    index: usize,
+) -> Result<Vec<(usize, usize, bool)>, ToolError> {
+    let label = if index == 0 {
+        "old_string".to_string()
+    } else {
+        format!("edits[{index}].old_string")
+    };
 
-    if count == 0 {
+    let exact_count = haystack.matches(old).count();
+
+    if exact_count == 0 {
+        // 精确匹配不到：回退到逐字符归一化的模糊匹配
+        if let Some((start, end, _)) = locate_fuzzy(haystack, old) {
+            return Ok(vec![(start, end, true)]);
+        }
         return Err(ToolError::recoverable(format!(
-            "在 `{shown}` 中找不到 old_string。{}",
+            "在 `{shown}` 中找不到 {label}。{}",
             mismatch_hint(haystack, old)
         )));
     }
 
-    if count > 1 && !replace_all {
+    if exact_count > 1 {
         return Err(ToolError::recoverable(format!(
-            "old_string 在 `{shown}` 中出现了 {count} 次，无法确定改哪一处。\
-             请在 old_string 前后补充更多上下文使其唯一；\
-             若确实要全部替换，请传 replace_all=true。"
+            "{label} 在 `{shown}` 中出现了 {exact_count} 次，无法确定改哪一处。\
+             请在前后补充更多上下文使其唯一，或把多处替换拆成互不重叠的几笔。"
         )));
     }
 
-    Ok(if replace_all {
-        haystack.replace(old, new)
-    } else {
-        haystack.replacen(old, new, 1)
-    })
+    // 恰好一个匹配
+    let start = haystack.find(old).expect("计数为 1 则必然可找到");
+    Ok(vec![(start, start + old.len(), false)])
+}
+
+/// 归一化后的模糊定位。逐字符映射不改变字符数量，因此可以把
+/// 归一化串里的位置映射回原文的字节区间。
+fn locate_fuzzy(haystack: &str, old: &str) -> Option<(usize, usize, bool)> {
+    if old.is_empty() {
+        return None;
+    }
+    let hay_norm: Vec<char> = haystack.chars().map(normalize_char).collect();
+    let old_norm: Vec<char> = old.chars().map(normalize_char).collect();
+    if old_norm.len() > hay_norm.len() {
+        return None;
+    }
+    let char_start = hay_norm
+        .windows(old_norm.len())
+        .position(|w| w == old_norm)?;
+
+    let hay_chars: Vec<char> = haystack.chars().collect();
+    let byte_start = hay_chars[..char_start]
+        .iter()
+        .map(|c| c.len_utf8())
+        .sum::<usize>();
+    let byte_end = byte_start
+        + hay_chars[char_start..char_start + old_norm.len()]
+            .iter()
+            .map(|c| c.len_utf8())
+            .sum::<usize>();
+
+    Some((byte_start, byte_end, true))
+}
+
+/// 把容易打错的全角字符、弯引号、破折号、特殊空格归一到 ASCII。
+///
+/// 全部是单字符到单字符的映射 —— 模糊匹配要靠「字符数不变」把位置
+/// 映射回原文，任何增删字符的变换（如 NFKC 拆字）都会破坏这一点。
+fn normalize_char(c: char) -> char {
+    match c {
+        // 弯引号 → 直引号
+        '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => '\'',
+        '\u{201C}' | '\u{201D}' | '\u{201E}' | '\u{201F}' => '"',
+        // 各种连字符/破折号 → ASCII 连字符
+        '\u{2010}'..='\u{2015}' | '\u{2212}' => '-',
+        // NBSP / 各种宽空格 / 全角空格 → 普通空格
+        '\u{00A0}' | '\u{2002}'..='\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' => ' ',
+        // 全角 ASCII 区（！～）→ 半角
+        '\u{FF01}'..='\u{FF5E}' => char::from_u32(c as u32 - 0xFEE0).unwrap_or(c),
+        _ => c,
+    }
+}
+
+/// 检查多笔替换的区间是否重叠。
+fn check_no_overlap(located: &[(usize, usize, &str, bool)], shown: &str) -> Result<(), ToolError> {
+    for i in 0..located.len() {
+        for j in (i + 1)..located.len() {
+            let a = located[i];
+            let b = located[j];
+            let overlap = a.0 < b.1 && b.0 < a.1;
+            if overlap {
+                return Err(ToolError::recoverable(format!(
+                    "`{shown}` 中的两笔替换区间重叠，无法确定先后。\
+                     请把互相靠近的修改合并成同一笔替换。"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// 猜测匹配失败的原因，给模型一个具体的修正方向。
@@ -210,33 +369,34 @@ fn render(old: &str, new: &str, shown: &str) -> ToolOutcome {
 mod tests {
     use super::*;
 
+    fn spec(old: &str, new: &str) -> EditSpec {
+        EditSpec {
+            old: old.to_string(),
+            new: new.to_string(),
+        }
+    }
+
     #[test]
     fn replaces_unique_match() {
-        let got = replace("a\nb\nc\n", "b", "B", false, "f.rs").expect("唯一匹配应当成功");
+        let got = apply_edits("a\nb\nc\n", &[spec("b", "B")], "f.rs").expect("唯一匹配应当成功");
         assert_eq!(got, "a\nB\nc\n");
     }
 
     #[test]
     fn rejects_ambiguous_match() {
-        let err = replace("x\nx\n", "x", "y", false, "f.rs").expect_err("多处匹配必须报错");
+        let err = apply_edits("x\nx\n", &[spec("x", "y")], "f.rs").expect_err("多处匹配必须报错");
         let message = err.to_string();
         assert!(message.contains("出现了 2 次"), "{message}");
         assert!(
-            message.contains("replace_all"),
+            message.contains("唯一") || message.contains("上下文"),
             "错误消息该给出解法：{message}"
         );
     }
 
     #[test]
-    fn replace_all_handles_multiple() {
-        let got = replace("x\nx\n", "x", "y", true, "f.rs").expect("replace_all 应当成功");
-        assert_eq!(got, "y\ny\n");
-    }
-
-    #[test]
     fn reports_missing_match() {
-        let err = replace("a\n", "zzz", "b", false, "f.rs").expect_err("找不到必须报错");
-        assert!(err.to_string().contains("找不到 old_string"));
+        let err = apply_edits("a\n", &[spec("zzz", "b")], "f.rs").expect_err("找不到必须报错");
+        assert!(err.to_string().contains("找不到"));
     }
 
     /// 缩进不一致是最常见的失败原因，提示要点出这一点。
@@ -247,18 +407,17 @@ mod tests {
     fn hints_about_indentation() {
         let haystack = "    let x = 1;\n    let y = 2;\n";
         let old = "let x = 1;\nlet y = 2;";
-        let err = replace(haystack, old, "z", false, "f.rs").expect_err("缩进不同应当匹配失败");
+        let err =
+            apply_edits(haystack, &[spec(old, "z")], "f.rs").expect_err("缩进不同应当匹配失败");
         assert!(err.to_string().contains("缩进"), "{err}");
     }
 
     /// 不带缩进的单行仍应正常替换，且保留原有缩进。
     #[test]
     fn single_line_match_keeps_indentation() {
-        let got = replace(
+        let got = apply_edits(
             "    let x = 1;\n",
-            "let x = 1;",
-            "let x = 2;",
-            false,
+            &[spec("let x = 1;", "let x = 2;")],
             "f.rs",
         )
         .expect("单行子串匹配应当成功");
@@ -270,14 +429,89 @@ mod tests {
     fn hints_when_only_first_line_matches() {
         let haystack = "fn main() {\n    do_something();\n}\n";
         let old = "fn main() {\n    other();\n}";
-        let err = replace(haystack, old, "x", false, "f.rs").expect_err("应当匹配失败");
+        let err = apply_edits(haystack, &[spec(old, "x")], "f.rs").expect_err("应当匹配失败");
         assert!(err.to_string().contains("首行"), "{err}");
     }
 
     #[test]
     fn deletes_when_new_string_empty() {
-        let got = replace("a\nb\nc\n", "b\n", "", false, "f.rs").expect("删除应当成功");
+        let got = apply_edits("a\nb\nc\n", &[spec("b\n", "")], "f.rs").expect("删除应当成功");
         assert_eq!(got, "a\nc\n");
+    }
+
+    // ---------- 多笔替换 ----------
+
+    /// 一次调用多笔替换：每笔都在原始内容上定位，结果互不干扰。
+    #[test]
+    fn applies_multiple_disjoint_edits() {
+        let got = apply_edits("a\nb\nc\nd\n", &[spec("a", "A"), spec("c", "C")], "f.rs")
+            .expect("不相邻的多笔替换应当成功");
+        assert_eq!(got, "A\nb\nC\nd\n");
+    }
+
+    /// 多笔替换都匹配原始内容：即使某笔的 old 与另一笔的 new 相同，也不影响定位。
+    #[test]
+    fn edits_match_original_not_incrementally() {
+        let got = apply_edits(
+            "foo bar\n",
+            &[spec("bar", "baz"), spec("foo", "bar")],
+            "f.rs",
+        )
+        .expect("每笔都匹配原始内容");
+        assert_eq!(
+            got, "bar baz\n",
+            "第二笔的 old=bar 应命中原始 bar，而非第一笔刚写的"
+        );
+    }
+
+    /// 区间重叠必须报错 —— 模型该合并相邻修改而不是给出互相打架的区间。
+    #[test]
+    fn rejects_overlapping_edits() {
+        let err = apply_edits(
+            "hello world\n",
+            &[spec("hello", "hi"), spec("hello world", "bye")],
+            "f.rs",
+        )
+        .expect_err("重叠区间必须报错");
+        assert!(err.to_string().contains("重叠"), "{err}");
+    }
+
+    // ---------- 模糊匹配 ----------
+
+    /// 弯引号被模型打成直引号时，归一化后仍能命中，且替换生效。
+    #[test]
+    fn fuzzy_matches_smart_quotes() {
+        let haystack = "她说：“你好”。\n";
+        let got = apply_edits(haystack, &[spec("\"你好\"", "再见")], "f.rs")
+            .expect("弯引号差异应当被归一化命中");
+        // 被替换的是整个目标区间，弯引号随原文区间一起被换掉
+        assert_eq!(got, "她说：再见。\n");
+    }
+
+    /// 全角 ASCII 与半角的差异应当被归一化命中。
+    #[test]
+    fn fuzzy_matches_fullwidth_ascii() {
+        let haystack = "版本：１．０\n";
+        let got = apply_edits(haystack, &[spec("1.0", "2.0")], "f.rs")
+            .expect("全角数字差异应当被归一化命中");
+        assert_eq!(got, "版本：2.0\n");
+    }
+
+    /// NBSP 与普通空格的差异应当被归一化命中。
+    #[test]
+    fn fuzzy_matches_nbsp() {
+        let haystack = "a\u{00A0}b\n";
+        let got = apply_edits(haystack, &[spec("a b", "a c")], "f.rs")
+            .expect("NBSP 差异应当被归一化命中");
+        assert_eq!(got, "a c\n");
+    }
+
+    /// 归一化后仍找不到时保持报错。
+    #[test]
+    fn fuzzy_falls_back_to_error_when_still_missing() {
+        let err = apply_edits("abc\n", &[spec("xyz", "q")], "f.rs")
+            .expect_err("归一化后仍找不到必须报错");
+        assert!(err.to_string().contains("找不到"), "{err}");
     }
 
     #[test]
@@ -349,9 +583,22 @@ mod tests {
         async fn edit(&self, name: &str, old: &str, new: &str) -> Result<ToolOutcome, ToolError> {
             self.tool
                 .execute(
-                    json!({ "path": name, "old_string": old, "new_string": new }),
+                    json!({
+                        "path": name,
+                        "edits": [{ "old_string": old, "new_string": new }]
+                    }),
                     &self.ctx(),
                 )
+                .await
+        }
+
+        async fn edit_many(
+            &self,
+            name: &str,
+            edits: Vec<EditItem>,
+        ) -> Result<ToolOutcome, ToolError> {
+            self.tool
+                .execute(json!({ "path": name, "edits": edits }), &self.ctx())
                 .await
         }
     }
@@ -399,6 +646,34 @@ mod tests {
             .expect("跨换行符风格也该匹配");
 
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "x\r\ny\r\nc\r\n");
+    }
+
+    /// 一次多笔替换真实落到磁盘上。
+    #[tokio::test]
+    async fn applies_multiple_edits_to_disk() {
+        let f = Fixture::new();
+        let path = f.write_file("multi.txt", "one two\nthree four\n");
+        f.mark_read(&path);
+
+        let edits = vec![
+            EditItem {
+                old_string: "one".into(),
+                new_string: "1".into(),
+            },
+            EditItem {
+                old_string: "four".into(),
+                new_string: "4".into(),
+            },
+        ];
+        f.edit_many("multi.txt", edits)
+            .await
+            .expect("多笔替换应当成功");
+
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "1 two\nthree 4\n",
+            "两笔替换应各自生效"
+        );
     }
 
     /// 没 Read 过就编辑必须被拒。
@@ -469,5 +744,25 @@ mod tests {
         let f = Fixture::new();
         let err = f.edit("nope.txt", "a", "b").await.expect_err("应当报错");
         assert!(err.to_string().contains("Write"), "{err}");
+    }
+
+    /// edits 数组为空时直接报错 —— 没有要改的东西，不该碰文件。
+    #[tokio::test]
+    async fn rejects_empty_edits() {
+        let f = Fixture::new();
+        let path = f.write_file("a.txt", "hello\n");
+        f.mark_read(&path);
+
+        let err = f
+            .tool
+            .execute(json!({ "path": "a.txt", "edits": [] }), &f.ctx())
+            .await
+            .expect_err("空 edits 必须报错");
+        assert!(err.to_string().contains("不能为空"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            "hello\n",
+            "报错时不该动文件"
+        );
     }
 }

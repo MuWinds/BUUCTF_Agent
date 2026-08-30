@@ -5,7 +5,7 @@
 
 use std::time::Instant;
 
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
 use tokio_util::sync::CancellationToken;
 
 use crate::config::LlmConfig;
@@ -17,12 +17,6 @@ use crate::llm::{LlmClient, StreamItem};
 use crate::session::{Session, Status, ToolRecord};
 use crate::sink::{ProgressReporter, ThrottledSink};
 use crate::tools::{Registry, ToolCtx, ToolEnv};
-
-/// 单轮内最多允许模型调用几次工具就必须收口。
-///
-/// 防的是模型陷入「调用 → 失败 → 换个参数再调」的死循环。触顶后把情况
-/// 如实告诉模型，让它给出结论而不是静默截断。
-const MAX_TOOL_ROUNDS: usize = 25;
 
 /// 一个轮次的产出。
 #[derive(Debug, Clone)]
@@ -94,7 +88,7 @@ pub async fn run(
 
     session.start_assistant();
 
-    for round in 0..MAX_TOOL_ROUNDS {
+    loop {
         let messages = session.to_messages();
 
         let step = match request(
@@ -119,7 +113,15 @@ pub async fn run(
             }
         };
 
+        // 服务端返回了 usage 时，把本次请求的真实上下文占用记进会话 ——
+        // 自动压缩靠它判断窗口快满没满，比字符估算准得多。
+        if usage.reported {
+            session.record_context_used(usage.last_prompt);
+        }
+
         session.push_reasoning(&step.reasoning);
+        // 每次请求一段，投影时按条回传给 DeepSeek 这类 thinking 模式
+        session.push_reasoning_round(&step.reasoning);
         session.push_text(&step.answer);
 
         if step.calls.is_empty() {
@@ -152,22 +154,7 @@ pub async fn run(
                 return finish(sink, started, usage, config, outcome);
             }
         }
-
-        if round + 1 == MAX_TOOL_ROUNDS {
-            session.push_user(format!(
-                "已连续调用工具 {MAX_TOOL_ROUNDS} 次，达到本轮上限。\
-                 请基于目前掌握的信息直接给出结论，不要再调用工具。"
-            ));
-            session.start_assistant();
-        }
     }
-
-    session.set_status(Status::Done);
-    session.drop_empty_assistant();
-    let outcome = TurnOutcome {
-        finish_reason: "tool_limit".into(),
-    };
-    finish(sink, started, usage, config, outcome)
 }
 
 fn status_for(reason: &str) -> Status {
@@ -185,6 +172,71 @@ struct Step {
     finish_reason: String,
 }
 
+/// 建立流式连接，遇到可重试错误时按配置退避重试。
+///
+/// - 只对 [`Error::retryable`] 的错误重试：连接失败、限流（429）、服务端故障（5xx）等。
+/// - `config.max_retries` 为 `None` 时无限重试；`Some(0)` 不重试；`Some(n)` 最多重试 n 次。
+/// - 每次重试前推送 [`AgentEvent::Retry`]，把失败原因和等待时间告诉 UI。
+/// - 退避等待期间监听取消：用户点停止立刻退出（无限重试时这是唯一的退出方式）。
+async fn connect_with_retry(
+    client: &LlmClient,
+    config: &LlmConfig,
+    messages: &[Message],
+    definitions: &[crate::llm::types::ToolDef],
+    sink: &ThrottledSink,
+    cancel: &CancellationToken,
+) -> Result<impl Stream<Item = StreamItem>, String> {
+    let mut retried = 0u32;
+
+    loop {
+        match client.stream_chat(config, messages, definitions).await {
+            Ok(stream) => return Ok(stream),
+            Err(error) if !error.retryable() => {
+                // 配置 / 协议问题：重试多少次都一样，直接报错
+                emit_llm_error(sink, &error);
+                return Err("error".into());
+            }
+            Err(error) => {
+                if let Some(max) = config.max_retries {
+                    if retried >= max {
+                        emit_llm_error(sink, &error);
+                        return Err("error".into());
+                    }
+                }
+
+                retried += 1;
+                let delay = retry_delay(retried);
+                tracing::warn!(
+                    attempt = retried,
+                    retry_after_ms = delay.as_millis() as u64,
+                    "LLM 请求失败，准备重试：{error}"
+                );
+                sink.emit(AgentEvent::Retry {
+                    turn_id: sink.turn_id().to_string(),
+                    attempt: retried,
+                    max_retries: config.max_retries,
+                    message: error.to_string(),
+                    retry_after_ms: delay.as_millis() as u64,
+                });
+
+                tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err("cancelled".into()),
+                    _ = tokio::time::sleep(delay) => {}
+                }
+            }
+        }
+    }
+}
+
+/// 指数退避：1s、2s、4s、8s、16s，之后封顶 30s。
+///
+/// 立即重试大概率继续撞墙；稍微等一等，供应商通常几十秒内就恢复。
+fn retry_delay(attempt: u32) -> std::time::Duration {
+    let shift = (attempt - 1).min(5);
+    std::time::Duration::from_secs((1u64 << shift).min(30))
+}
+
 /// 发一次请求并消费完整条流。
 ///
 /// `Err` 携带的是这一轮的结束原因（`error` / `cancelled`）。
@@ -197,13 +249,7 @@ async fn request(
     cancel: &CancellationToken,
     usage: &mut UsageTally,
 ) -> Result<Step, String> {
-    let stream = match client.stream_chat(config, messages, definitions).await {
-        Ok(s) => s,
-        Err(e) => {
-            emit_llm_error(sink, &e);
-            return Err("error".into());
-        }
-    };
+    let stream = connect_with_retry(client, config, messages, definitions, sink, cancel).await?;
     tokio::pin!(stream);
 
     let mut answer = String::new();
@@ -249,6 +295,11 @@ async fn request(
             sink.push_text(&text);
         }
         if let Some(deltas) = choice.delta.tool_calls {
+            // 文本走 33ms 帧聚合缓冲，而 ToolCallStart 立即推送。若不清缓冲，
+            // 工具调用前的最后几个 token 会滞留 —— 卡片先到前端，正文被劈成
+            // 两截：一截在卡片前，一截（姗姗来迟的）被追加到卡片后。
+            // 先把缓冲冲掉，事件顺序才与模型输出一致。
+            sink.flush();
             for started in accumulator.push(&deltas) {
                 sink.emit(AgentEvent::ToolCallStart {
                     turn_id: sink.turn_id().to_string(),
@@ -452,6 +503,23 @@ fn emit_error(sink: &ThrottledSink, code: &str, message: &str, retryable: bool) 
 mod tests {
     use super::*;
     use crate::llm::types::Usage;
+    use std::time::Duration;
+
+    /// 退避必须指数增长且封顶：无限重试时等待不能无限拉长。
+    #[test]
+    fn retry_delay_backs_off_exponentially_and_caps() {
+        assert_eq!(retry_delay(1), Duration::from_secs(1));
+        assert_eq!(retry_delay(2), Duration::from_secs(2));
+        assert_eq!(retry_delay(3), Duration::from_secs(4));
+        assert_eq!(retry_delay(4), Duration::from_secs(8));
+        assert_eq!(retry_delay(5), Duration::from_secs(16));
+        assert_eq!(
+            retry_delay(6),
+            Duration::from_secs(30),
+            "超过 32s 必须封顶，无限重试时等待不能无限拉长"
+        );
+        assert_eq!(retry_delay(12), Duration::from_secs(30));
+    }
 
     fn usage(prompt: u32, completion: u32) -> Usage {
         Usage {

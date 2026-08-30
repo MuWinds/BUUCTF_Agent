@@ -45,6 +45,12 @@ function loadScenarios() {
 
 const SCENARIOS = loadScenarios();
 
+// 「先失败 N 次再成功」场景的失败计数器，按场景 id 记。
+// 服务端因此带了一点状态 —— 但只在这个 fixture 显式配置 httpBeforeOk 时启用，
+// 其他场景完全不受影响；自动化测试每个用例起独立进程，计数器必然从 0 开始，
+// 不存在跨用例污染。手动测试重启 server 即可归零。
+const FAIL_COUNTS = new Map();
+
 function parseArgs(argv) {
   const options = { port: 8787, host: '127.0.0.1', record: null, title: '', match: [] };
   for (let i = 0; i < argv.length; i += 1) {
@@ -387,6 +393,23 @@ async function handleChat(req, res) {
 
   const scenario = pickScenario(body);
   const model = String(body.model ?? 'fake-model');
+
+  // 重试测试专用：前 `failures` 次请求一律返回可重试的 HTTP 错误，
+  // 之后才正常回放 —— 客户端必须按配置退避重试才能拿到正文。
+  if (scenario.httpBeforeOk) {
+    const failed = FAIL_COUNTS.get(scenario.id) ?? 0;
+    if (failed < scenario.httpBeforeOk.failures) {
+      FAIL_COUNTS.set(scenario.id, failed + 1);
+      console.error(
+        `[fake-llm] ${scenario.id} 第 ${failed + 1} 次请求返回 HTTP ${scenario.httpBeforeOk.status}`,
+      );
+      const body = scenario.httpBeforeOk.body ?? {
+        error: { message: 'temporary upstream failure' },
+      };
+      sendJson(res, scenario.httpBeforeOk.status, body);
+      return;
+    }
+  }
 
   if (scenario.http) {
     console.error(`[fake-llm] ${scenario.id} → HTTP ${scenario.http.status}`);

@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { ChevronRight, AlertCircle, CircleSlash } from 'lucide-react';
+import { ChevronRight, AlertCircle, CircleSlash, RefreshCw } from 'lucide-react';
 import { RichText } from './RichText';
 import { ToolCard } from '@/components/tools/ToolCard';
 import type { Message } from '@/store/session';
@@ -42,6 +42,19 @@ export const AssistantMessage = memo(
           </div>
         )}
 
+        {message.retrying && (
+          <div className="mt-2 flex items-start gap-2 rounded-card border border-(--color-warn)/30 bg-(--color-warn)/10 px-3 py-2 text-sm">
+            <RefreshCw className="mt-0.5 size-4 shrink-0 animate-spin text-(--color-warn)" />
+            <span className="selectable text-(--fg-muted)">
+              请求失败（{message.retrying.message}），正在第 {message.retrying.attempt} 次重试
+              {message.retrying.maxRetries === null
+                ? '（无限重试，可点停止退出）'
+                : `（最多 ${message.retrying.maxRetries} 次）`}
+              ，{retryDelayText(message.retrying.retryAfterMs)} 后重试…
+            </span>
+          </div>
+        )}
+
         {message.status === 'error' && (
           <div className="mt-2 flex items-start gap-2 rounded-card border border-(--color-danger)/30 bg-(--color-danger)/10 px-3 py-2 text-sm">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-(--color-danger)" />
@@ -63,8 +76,15 @@ export const AssistantMessage = memo(
     prev.message.tools === next.message.tools &&
     prev.message.reasoning === next.message.reasoning &&
     prev.message.status === next.message.status &&
-    prev.message.error === next.message.error,
+    prev.message.error === next.message.error &&
+    prev.message.retrying === next.message.retrying,
 );
+
+/** 把重试等待的毫秒数说成人话。最小退避是 1s，四舍五入到秒即可。 */
+function retryDelayText(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  return `${seconds} 秒`;
+}
 
 /** 流式光标。用 CSS 动画而非 JS 定时器，不占主线程。 */
 function Caret() {

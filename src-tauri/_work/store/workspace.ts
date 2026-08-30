@@ -31,11 +31,8 @@ export const useWorkspace = create<WorkspaceState>((set) => ({
     try {
       const path = await setWorkspace(selected);
       set({ path, error: null });
-      // Rust 侧已载入新工作区最近一次的会话（没有历史则是空会话），
-      // 前端先清掉旧工作区的消息再重新拉取，并同步会话列表。
-      useSession.setState({ messages: [], usage: null, streaming: false });
-      await useSession.getState().restore();
-      await useSession.getState().refreshSessions();
+      // Rust 侧已清空会话，前端也得跟上，否则界面还留着旧工作区的对话
+      useSession.setState({ messages: [], usage: null });
     } catch (e) {
       set({ error: errorMessage(e) });
     }

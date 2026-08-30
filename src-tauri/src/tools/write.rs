@@ -34,6 +34,16 @@ impl Tool for WriteTool {
          父目录不存在时会自动创建。"
     }
 
+    fn prompt_contribution(&self) -> agent_core::PromptContribution {
+        agent_core::PromptContribution {
+            snippet: "创建新文件或整体覆盖已有文件。",
+            guidelines: &[
+                "创建新文件用 Write；只改一部分用 Edit。",
+                "覆盖已存在的文件前必须先 Read 它。",
+            ],
+        }
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

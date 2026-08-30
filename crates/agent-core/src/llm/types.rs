@@ -66,6 +66,14 @@ pub struct Message {
     pub role: Role,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    /// 思维链（DeepSeek 思考模式等）。非标准字段，只在非空时发送；
+    /// OpenAI / vLLM 等不认识的网关会忽略它。
+    ///
+    /// 必须存并原样回传：DeepSeek 对 thinking 模式强制校验，assistant 消息
+    /// 缺了它会直接 400「The `reasoning_content` in the thinking mode must
+    /// be passed back to the API」—— 工具调用轮次后不带它，下一轮请求必炸。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     /// assistant 消息里模型请求的工具调用。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
@@ -106,8 +114,24 @@ impl Message {
     pub fn user(content: impl Into<String>) -> Self {
         Self::text(Role::User, content)
     }
+
+    /// 普通 assistant 消息。不带思维链 —— 没有 thinking 模式的提供商用不到。
     pub fn assistant(content: impl Into<String>) -> Self {
-        Self::text(Role::Assistant, content)
+        Self::assistant_with_reasoning(content, None)
+    }
+
+    /// 带思维链回传的 assistant 消息。
+    ///
+    /// `reasoning` 是**该次请求**服务端返回的 reasoning_content 原样。
+    /// DeepSeek 思考模式下缺失即 400，见 [`Message::reasoning_content`]。
+    ///
+    /// 注意：**空串也要带上**。DeepSeek 校验的是字段存在性，模型某轮没输出
+    /// thinking（如直接调用工具）时 reasoning 为空串，这里仍要保留字段，
+    /// 否则下一轮请求会 400「reasoning_content must be passed back」。
+    pub fn assistant_with_reasoning(content: impl Into<String>, reasoning: Option<&str>) -> Self {
+        let mut message = Self::text(Role::Assistant, content);
+        message.reasoning_content = reasoning.map(ToOwned::to_owned);
+        message
     }
 
     /// 模型请求工具调用时的 assistant 消息。
@@ -118,9 +142,23 @@ impl Message {
         Self {
             role: Role::Assistant,
             content: (!content.is_empty()).then_some(content),
+            reasoning_content: None,
             tool_calls: Some(calls),
             tool_call_id: None,
         }
+    }
+
+    /// 带思维链回传的工具调用消息。DeepSeek 思考模式下 tool_calls 消息同样
+    /// 必须带 reasoning_content，否则下一轮请求 400。空串也要保留字段，
+    /// 理由同 [`Message::assistant_with_reasoning`]。
+    pub fn tool_calls_with_reasoning(
+        content: String,
+        calls: Vec<ToolCall>,
+        reasoning: Option<&str>,
+    ) -> Self {
+        let mut message = Self::tool_calls(content, calls);
+        message.reasoning_content = reasoning.map(ToOwned::to_owned);
+        message
     }
 
     /// 工具执行结果，回灌给模型。
@@ -128,6 +166,7 @@ impl Message {
         Self {
             role: Role::Tool,
             content: Some(content.into()),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: Some(call_id.into()),
         }
@@ -137,6 +176,7 @@ impl Message {
         Self {
             role,
             content: Some(content.into()),
+            reasoning_content: None,
             tool_calls: None,
             tool_call_id: None,
         }

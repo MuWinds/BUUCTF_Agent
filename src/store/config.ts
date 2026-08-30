@@ -39,6 +39,8 @@ export const useConfig = create<ConfigState>((set, get) => ({
     model: '',
     temperature: null,
     context_limit: 128000,
+    compact_threshold: 0.7,
+    max_retries: 2,
   },
   loaded: false,
   saving: false,

@@ -129,10 +129,20 @@ struct Run {
 
 /// 跑完整一个轮次。`scenario` 直接填进 model 字段 —— 假服务端据此选场景。
 async fn run_scenario(scenario: &str, user_text: &str) -> Run {
-    run_with_cancel(scenario, user_text, CancellationToken::new()).await
+    run_with(scenario, user_text, Some(2), CancellationToken::new()).await
 }
 
 async fn run_with_cancel(scenario: &str, user_text: &str, cancel: CancellationToken) -> Run {
+    run_with(scenario, user_text, Some(2), cancel).await
+}
+
+/// 带重试上限参数地跑完整一个轮次。`None` 表示无限重试。
+async fn run_with(
+    scenario: &str,
+    user_text: &str,
+    max_retries: Option<u32>,
+    cancel: CancellationToken,
+) -> Run {
     let server = FakeLlm::start();
     let dir = workspace();
     let recorder = Recorder::default();
@@ -143,6 +153,8 @@ async fn run_with_cancel(scenario: &str, user_text: &str, cancel: CancellationTo
         model: scenario.to_string(),
         temperature: None,
         context_limit: 128_000,
+        max_retries,
+        ..Default::default()
     };
 
     let mut session = Session::default();
@@ -254,7 +266,9 @@ impl Run {
                 AgentEvent::ToolResult { .. } => "tool_result",
                 AgentEvent::Usage { .. } => "usage",
                 AgentEvent::TurnEnd { .. } => "turn_end",
+                AgentEvent::Retry { .. } => "retry",
                 AgentEvent::Error { .. } => "error",
+                AgentEvent::ContextCompacted { .. } => "context_compacted",
             })
             .collect()
     }
@@ -334,6 +348,30 @@ async fn single_tool_call_runs_against_the_real_filesystem() {
     let start = shape.iter().position(|s| *s == "tool_call_start").unwrap();
     let result = shape.iter().position(|s| *s == "tool_result").unwrap();
     assert!(start < result);
+}
+
+/// 工具调用前的文本必须完整先于卡片事件到达。
+///
+/// 文本走 33ms 帧聚合缓冲、ToolCallStart 立即推送，两者不同步时卡片会抢在
+/// 正文前面 —— 消息被断成两截。fixture 把正文拆成两段紧贴工具调用，
+/// 第二段必然滞留在缓冲里，此断言在修复前必然变红。
+#[tokio::test]
+async fn text_before_a_tool_call_precedes_the_card() {
+    let run = run_scenario("tool-text-then-call", "分裂文本").await;
+
+    let before_call: String = run
+        .events
+        .iter()
+        .take_while(|e| !matches!(e, AgentEvent::ToolCallStart { .. }))
+        .filter_map(|e| match e {
+            AgentEvent::AssistantDelta { text, .. } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        before_call.contains("稍等。"),
+        "工具调用前的文本被推迟到了卡片之后：{before_call:?}"
+    );
 }
 
 /// 一轮里的多个调用要各自独立上报，不能被合并成一个。
@@ -431,6 +469,9 @@ async fn malformed_stream_fragments_are_tolerated() {
 }
 
 /// HTTP 错误要变成 Error 事件（而非 panic 或静默），且带上服务端给的原因。
+///
+/// 用 `Some(0)` 关掉重试：这些 4xx/5xx 场景本就只想验证错误呈现，
+/// 开着默认重试会让用例多等好几秒退避，还没什么新信息。
 #[tokio::test]
 async fn http_errors_surface_as_error_events() {
     for (scenario, needle) in [
@@ -438,7 +479,7 @@ async fn http_errors_surface_as_error_events() {
         ("error-429", "Rate limit"),
         ("error-500", "server had an error"),
     ] {
-        let run = run_scenario(scenario, "触发错误").await;
+        let run = run_with(scenario, "触发错误", Some(0), CancellationToken::new()).await;
         let errors = run.errors();
         assert_eq!(errors.len(), 1, "{scenario} 应当恰好一个错误事件");
         assert!(
@@ -449,6 +490,116 @@ async fn http_errors_surface_as_error_events() {
         // 错误也要正常收尾，否则前端会永远停在「思考中」
         assert_eq!(run.shape().last(), Some(&"turn_end"));
     }
+}
+
+/// 可重试的失败要按配置退避重试：每次重试前都有 Retry 事件，带失败原因与次数。
+#[tokio::test]
+async fn retryable_failures_are_retried_until_success() {
+    let run = run_scenario("retry-then-success", "重试场景").await;
+
+    let retries: Vec<(u32, Option<u32>, String)> = run
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Retry {
+                attempt,
+                max_retries,
+                message,
+                ..
+            } => Some((*attempt, *max_retries, message.clone())),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(retries.len(), 2, "失败两次应当恰好重试两次：{retries:?}");
+    assert_eq!(retries[0].0, 1, "重试次数必须从 1 开始");
+    assert_eq!(retries[1].0, 2, "次数必须连续递增");
+    assert_eq!(retries[0].1, Some(2), "要把配置的重试上限带给 UI");
+    assert!(
+        retries[0].2.contains("503"),
+        "Retry 事件要写明失败原因：{}",
+        retries[0].2
+    );
+
+    assert!(
+        run.text().contains("终于成功了"),
+        "重试成功后正文照常流出：{}",
+        run.text()
+    );
+    assert!(run.errors().is_empty(), "重试成功不该有 Error 事件");
+    assert_eq!(run.finish_reason, "stop");
+
+    // Retry 必须全部发生在正文之前，UI 才能先展示提示再显示回答
+    let shape = run.shape();
+    let first_retry = shape.iter().position(|s| *s == "retry").unwrap();
+    let first_delta = shape.iter().position(|s| *s == "assistant_delta").unwrap();
+    assert!(first_retry < first_delta, "形状：{shape:?}");
+}
+
+/// 重试次数耗尽后给出 Error 事件，并保留最终失败原因 —— 不能无限重试下去。
+#[tokio::test]
+async fn retries_exhaust_into_an_error_event() {
+    let run = run_with(
+        "retry-exhausted",
+        "持续故障",
+        Some(1),
+        CancellationToken::new(),
+    )
+    .await;
+
+    let errors = run.errors();
+    assert_eq!(errors.len(), 1, "耗尽后应当恰好一个 Error 事件");
+    assert!(
+        errors[0].contains("service busy"),
+        "要保留服务端原因：{}",
+        errors[0]
+    );
+
+    // 初始尝试失败 + 1 次重试失败 = 1 个 Retry 事件
+    let retries = run
+        .events
+        .iter()
+        .filter(|e| matches!(e, AgentEvent::Retry { .. }))
+        .count();
+    assert_eq!(retries, 1);
+    assert_eq!(run.finish_reason, "error");
+    assert_eq!(run.shape().last(), Some(&"turn_end"));
+}
+
+/// 无限重试（上限 None）时持续退避重试，只有取消能退出。
+#[tokio::test]
+async fn infinite_retry_keeps_going_until_cancelled() {
+    let cancel = CancellationToken::new();
+    let trigger = cancel.clone();
+    // 第 1 次退避 1s、第 2 次退避 2s；2.5s 时取消，必然落在第 2 次退避等待中
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        trigger.cancel();
+    });
+
+    let run = run_with("retry-exhausted", "无限重试", None, cancel).await;
+
+    assert_eq!(run.finish_reason, "cancelled");
+    let attempts: Vec<u32> = run
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            AgentEvent::Retry { attempt, .. } => Some(*attempt),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        attempts.len() >= 2,
+        "无限重试应当在取消前持续重试：{attempts:?}"
+    );
+    assert!(
+        attempts.windows(2).all(|w| w[1] == w[0] + 1),
+        "重试次数必须连续递增：{attempts:?}"
+    );
+    assert!(
+        run.errors().is_empty(),
+        "取消是正常退出路径，不该有 Error 事件"
+    );
 }
 
 /// 一个内容帧都没有时，轮次仍要干净收尾。
@@ -479,4 +630,98 @@ async fn cancelling_mid_stream_keeps_what_was_already_said() {
     assert!(run.text().contains("第 1 句"));
     assert!(!run.text().contains("第 60 句"), "取消后不该继续接收");
     assert_eq!(run.shape().last(), Some(&"turn_end"));
+}
+
+/// 自动压缩走真协议：摘要请求打到 fake-llm，`[COMPACT]` 前缀被匹配到
+/// compact-summary 场景，返回的摘要替换掉最老的条目，system 原样保留。
+#[tokio::test]
+async fn auto_compaction_replaces_oldest_entries_with_summary() {
+    let server = FakeLlm::start();
+    let dir = workspace();
+
+    // 小窗口强制触发压缩；摘要请求仍用同一个 model，fake-llm 靠消息内容识别
+    let config = LlmConfig {
+        base_url: server.base_url.clone(),
+        api_key: String::new(),
+        model: "compact-summary".to_string(),
+        temperature: None,
+        context_limit: 200, // 两条长消息就超 70% 阈值
+        max_retries: Some(0),
+        ..Default::default()
+    };
+
+    // 构造一段明显超限的历史：system + 6 轮长对话（超过 KEEP_ENTRIES 条）
+    let mut session = Session::default();
+    session.push_system("sys");
+    for i in 0..6 {
+        session.push_user(format!(
+            "第 {i} 轮问题：这里是一段很长的内容，用来把估算 token 撑到窗口上限以上。"
+        ));
+        session.start_assistant();
+        session.push_text(format!("第 {i} 轮答复：对应的详细解释也写得比较长。").as_str());
+    }
+    let before = session.entries.len();
+
+    let read_registry = Arc::new(ReadRegistry::new());
+    let _ = read_registry;
+    let _recorder = Recorder::default();
+    let client = LlmClient::new().expect("创建 HTTP 客户端失败");
+
+    let outcome = agent_core::compact::maybe_compact(&client, &config, &mut session)
+        .await
+        .expect("压缩应当成功");
+
+    let compaction = outcome.expect("超限会话应当触发压缩");
+    assert!(compaction.removed_entries > 0);
+    assert_eq!(
+        session.entries.len(),
+        before - compaction.removed_entries + 1,
+        "N 条换 1 条摘要"
+    );
+
+    // system 必须原样保留在第一条
+    assert!(matches!(
+        session.entries[0],
+        agent_core::session::Entry::System { .. }
+    ));
+    // 摘要来自 fake-llm 的 compact-summary fixture
+    assert!(compaction.summary.contains("会话分支与自动压缩"));
+    // 摘要条目的文本 = 摘要内容，且被投影成 user 消息
+    let messages = session.to_messages();
+    assert!(messages
+        .iter()
+        .any(|m| m.content.as_deref() == Some(compaction.summary.as_str())));
+    // 目录留给 _dir 持有，避免提前删除
+    let _ = &dir;
+}
+
+/// 未超限的短会话不该触发压缩 —— 摘要请求是额外成本，没有收益就不做。
+#[tokio::test]
+async fn short_conversation_is_not_compacted() {
+    let server = FakeLlm::start();
+    let _dir = workspace();
+
+    let config = LlmConfig {
+        base_url: server.base_url.clone(),
+        api_key: String::new(),
+        model: "compact-summary".to_string(),
+        temperature: None,
+        context_limit: 128_000,
+        max_retries: Some(0),
+        ..Default::default()
+    };
+
+    let mut session = Session::default();
+    session.push_system("sys");
+    session.push_user("你好");
+    session.start_assistant();
+    session.push_text("你好！");
+
+    let client = LlmClient::new().expect("创建 HTTP 客户端失败");
+    let outcome = agent_core::compact::maybe_compact(&client, &config, &mut session)
+        .await
+        .expect("压缩检查不应失败");
+
+    assert!(outcome.is_none(), "短会话不该触发压缩");
+    assert_eq!(session.entries.len(), 3, "会话不应被改动");
 }

@@ -54,6 +54,16 @@ impl Tool for GrepTool {
          按文件名找文件用 Glob，不要用本工具。"
     }
 
+    fn prompt_contribution(&self) -> agent_core::PromptContribution {
+        agent_core::PromptContribution {
+            snippet: "按内容正则搜索文件，返回 `路径:行号: 内容` 匹配列表。",
+            guidelines: &[
+                "按内容搜索用 Grep，不要用 Bash 的 grep/findstr。",
+                "用 glob 参数限定文件类型可大幅缩小范围，加快搜索。",
+            ],
+        }
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

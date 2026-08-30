@@ -1,0 +1,15 @@
+{
+  "id": "compact-summary",
+  "title": "自动压缩的摘要请求",
+  "match": [
+    "[compact]"
+  ],
+  "rounds": [
+    {
+      "content": [
+        "此前对话摘要：用户要求实现会话分支与自动压缩，讨论了 Session 结构复用方案。"
+      ],
+      "finishReason": "stop"
+    }
+  ]
+}

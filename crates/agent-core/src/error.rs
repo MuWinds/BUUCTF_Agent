@@ -20,6 +20,10 @@ pub enum Error {
 
     #[error("{0}")]
     Internal(String),
+
+    /// 服务端返回的可重试错误（限流 429、服务端故障 5xx 等）。重试可能成功。
+    #[error("请求失败：{0}")]
+    Retryable(String),
 }
 
 impl Error {
@@ -30,12 +34,13 @@ impl Error {
             Self::Http(_) => "http",
             Self::Json(_) => "json",
             Self::Internal(_) => "internal",
+            Self::Retryable(_) => "retryable",
         }
     }
 
     /// 是否值得让用户重试。
     pub fn retryable(&self) -> bool {
-        matches!(self, Self::Http(_))
+        matches!(self, Self::Http(_) | Self::Retryable(_))
     }
 }
 

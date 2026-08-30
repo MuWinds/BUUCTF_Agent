@@ -1,10 +1,13 @@
 import { useEffect, useRef } from 'react';
-import { useSession } from '@/store/session';
+import { GitBranch } from 'lucide-react';
+import { useSession, type Message } from '@/store/session';
 import { AssistantMessage } from './AssistantMessage';
 import { UserMessage } from './UserMessage';
 
 export function MessageList() {
   const messages = useSession((s) => s.messages);
+  const streaming = useSession((s) => s.streaming);
+  const rewindTo = useSession((s) => s.rewindTo);
   const containerRef = useRef<HTMLDivElement>(null);
   /** 用户是否仍贴在底部。上滑查看历史时就不该被流式输出拽回去。 */
   const stuckToBottom = useRef(true);
@@ -32,10 +35,69 @@ export function MessageList() {
           const skippable = i < messages.length - 1;
           return (
             <div key={m.id} className={skippable ? 'offscreen-skip' : undefined}>
-              {m.role === 'user' ? <UserMessage message={m} /> : <AssistantMessage message={m} />}
+              {m.role === 'summary' ? (
+                <SummaryNotice message={m} />
+              ) : (
+                <Branchable
+                  message={m}
+                  streaming={streaming}
+                  onRewind={() => void rewindTo(m.entryIndex!)}
+                />
+              )}
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 历史消息包裹层：hover 时在右上角露出「从这里分叉」按钮。
+ * 只有带 entryIndex（已落盘）且不在流式中的消息才有意义 ——
+ * 分叉点是后端会话里的真实条目，临时占位消息还没落盘，无从截断。
+ */
+function Branchable({
+  message,
+  streaming,
+  onRewind,
+}: {
+  message: Message;
+  streaming: boolean;
+  onRewind: () => void;
+}) {
+  const canRewind = !streaming && message.entryIndex !== undefined;
+  return (
+    <div className="group relative">
+      {message.role === 'user' ? (
+        <UserMessage message={message} />
+      ) : (
+        <AssistantMessage message={message} />
+      )}
+      {canRewind && (
+        <button
+          type="button"
+          title="从这里分叉：保留此前内容，丢弃之后的消息"
+          onClick={onRewind}
+          className="absolute right-0 top-2 z-10 flex items-center gap-1 rounded-md border border-(--border) bg-(--bg-elevated) px-2 py-1 text-[11px] text-(--fg-subtle) opacity-0 transition-opacity hover:text-(--fg) group-hover:opacity-100"
+        >
+          <GitBranch className="size-3" />
+          分叉
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** 自动压缩产生的摘要气泡。点击展开看摘要全文。 */
+function SummaryNotice({ message }: { message: { summary?: string } }) {
+  return (
+    <div className="px-6 py-2">
+      <div className="rounded-card border border-dashed border-(--border) bg-(--bg-elevated)/50 px-4 py-2 text-[12px] text-(--fg-subtle)">
+        <span className="font-medium text-(--fg-muted)">上下文已自动压缩</span>
+        {message.summary ? (
+          <p className="mt-1 selectable whitespace-pre-wrap">{message.summary}</p>
+        ) : null}
       </div>
     </div>
   );

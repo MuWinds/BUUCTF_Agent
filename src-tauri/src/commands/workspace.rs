@@ -14,8 +14,8 @@ pub async fn get_workspace(state: State<'_, AppState>) -> Result<String> {
 
 /// 切换工作区。
 ///
-/// 会一并清空会话历史：工具读到的文件内容都属于旧工作区，
-/// 留着只会让模型基于错误的上下文作答。
+/// 会话按工作区归档：切过去时载入那个工作区最近一次的会话，
+/// 而不是一刀切清空 —— 每个项目的历史独立保存，互不干扰。
 #[tauri::command]
 pub async fn set_workspace(state: State<'_, AppState>, path: String) -> Result<String> {
     let path = PathBuf::from(path.trim());
@@ -33,11 +33,15 @@ pub async fn set_workspace(state: State<'_, AppState>, path: String) -> Result<S
     let cleaned = strip_unc_prefix(&absolute);
 
     state.cancel_active().await;
-    state.session.lock().await.clear();
     // 旧工作区的读取记录对新工作区毫无意义，留着只会让「编辑前须读」的校验失准
     state.read_registry.clear();
     *state.workspace_root.write().await = cleaned.clone();
-    state.persist().await;
+
+    // 载入新工作区最近一次的会话；没有历史就开一段新的
+    let model = state.config.read().await.model.clone();
+    let (session, session_id) = crate::persist::bootstrap(&state.app_data, &cleaned, &model).await;
+    *state.session.lock().await = session;
+    *state.session_id.write().await = session_id;
 
     Ok(cleaned.display().to_string())
 }

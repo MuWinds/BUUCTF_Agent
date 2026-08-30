@@ -44,6 +44,7 @@
 //! # }
 //! ```
 
+pub mod compact;
 pub mod config;
 pub mod error;
 pub mod events;
@@ -60,5 +61,5 @@ pub use llm::types::{Message, Role, Usage};
 pub use llm::LlmClient;
 pub use session::{Session, ToolRecord};
 pub use sink::{EventSink, ProgressReporter, ThrottledSink};
-pub use tools::{Registry, Tool, ToolCtx, ToolEnv, ToolError, ToolOutcome};
+pub use tools::{PromptContribution, Registry, Tool, ToolCtx, ToolEnv, ToolError, ToolOutcome};
 pub use turn::TurnOutcome;

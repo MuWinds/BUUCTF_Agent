@@ -75,6 +75,19 @@ pub struct ToolCtx {
     pub progress: ProgressReporter,
 }
 
+/// 工具对系统提示词的贡献。
+///
+/// 与发给 API 的 `description` 分开：`snippet` 是系统提示词里「可用工具」
+/// 清单的一行，`guidelines` 是额外的使用准则。宿主把启用工具的这些贡献
+/// 动态组装进系统提示词，而不是让每个工具把一整套说明塞进 `description`。
+#[derive(Debug, Clone, Copy)]
+pub struct PromptContribution {
+    /// 一行工具介绍，如 `- Read：读取文件内容`。
+    pub snippet: &'static str,
+    /// 与该工具相关的使用准则，逐条加入系统提示词。
+    pub guidelines: &'static [&'static str],
+}
+
 #[async_trait]
 pub trait Tool: Send + Sync {
     /// 给模型看的函数名，如 `Read`。
@@ -90,6 +103,16 @@ pub trait Tool: Send + Sync {
     ///
     /// 在**执行前**调用，因此参数可能不合法 —— 实现里不要 unwrap。
     fn preview(&self, args: &Value) -> String;
+
+    /// 对系统提示词的贡献。默认不贡献任何内容 —— 只有明确写了的
+    /// 工具才出现在「可用工具」清单里，避免模板工具/未来内部工具
+    /// 悄悄暴露给模型。
+    fn prompt_contribution(&self) -> PromptContribution {
+        PromptContribution {
+            snippet: "",
+            guidelines: &[],
+        }
+    }
 
     async fn execute(&self, args: Value, ctx: &ToolCtx) -> Result<ToolOutcome, ToolError>;
 }
@@ -124,6 +147,30 @@ impl Registry {
         self.tools
             .values()
             .map(|t| ToolDef::function(t.name(), t.description(), t.parameters_schema()))
+            .collect()
+    }
+
+    /// 系统提示词里「可用工具」清单：名字 → 一行简介。
+    ///
+    /// 顺序与 `definitions()` 一致（BTreeMap 稳定排序），只收录贡献了
+    /// snippet 的工具 —— 没有贡献说明的（比如未来加的内部工具）不暴露。
+    pub fn prompt_snippets(&self) -> Vec<(&'static str, &'static str)> {
+        self.tools
+            .iter()
+            .filter_map(|(name, t)| {
+                let contribution = t.prompt_contribution();
+                (!contribution.snippet.is_empty()).then_some((*name, contribution.snippet))
+            })
+            .collect()
+    }
+
+    /// 全部工具的准则，按注册顺序去重 —— 多个工具重复的准则只写一次。
+    pub fn prompt_guidelines(&self) -> Vec<&'static str> {
+        let mut seen = std::collections::HashSet::new();
+        self.tools
+            .values()
+            .flat_map(|t| t.prompt_contribution().guidelines.iter().copied())
+            .filter(|g| seen.insert(*g))
             .collect()
     }
 

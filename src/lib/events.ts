@@ -95,6 +95,22 @@ export type AgentEvent =
       elapsed_ms: number;
     }
   | {
+      type: 'retry';
+      turn_id: string;
+      attempt: number;
+      max_retries: number | null;
+      message: string;
+      retry_after_ms: number;
+    }
+  | {
+      type: 'context_compacted';
+      turn_id: string;
+      /** 被压缩掉的条目数（= 替换成一条 Summary 的条目数）。 */
+      removed_entries: number;
+      /** LLM 生成的摘要正文。 */
+      summary: string;
+    }
+  | {
       type: 'error';
       turn_id: string;
       code: string;

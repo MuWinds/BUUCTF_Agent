@@ -104,7 +104,7 @@ export function Settings({ onClose }: { onClose: () => void }) {
 
           <Field
             label="上下文窗口"
-            hint="仅用于状态栏显示占用比例，填错不影响正常对话。常见值：128000、200000、1000000。"
+            hint="仅用于状态栏显示占用比例和自动压缩的阈值判断，填错不影响正常对话。常见值：128000、200000、1000000。"
           >
             <input
               value={config.context_limit}
@@ -114,6 +114,46 @@ export function Settings({ onClose }: { onClose: () => void }) {
               }}
               inputMode="numeric"
               placeholder="128000"
+              className={inputClass}
+              spellCheck={false}
+            />
+          </Field>
+
+          <Field
+            label="自动压缩阈值"
+            hint="上下文占用超过窗口的该比例时，把最老的历史折叠成摘要。0.7 表示留 30% 余量给当前轮次；填 0.5 更早压缩、0.9 更晚。"
+          >
+            <input
+              value={config.compact_threshold}
+              onChange={(e) => {
+                const raw = e.target.value.replace(',', '.');
+                const n = Number(raw);
+                update({ compact_threshold: Number.isFinite(n) ? n : 0.7 });
+              }}
+              inputMode="decimal"
+              placeholder="0.7"
+              className={inputClass}
+              spellCheck={false}
+            />
+          </Field>
+
+          <Field
+            label="重试次数"
+            hint="请求失败后自动重试的次数。填 0 表示不重试；填 n 表示最多重试 n 次；留空表示无限重试（直到成功或手动停止）。"
+          >
+            <input
+              value={config.max_retries ?? ''}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw.trim() === '') {
+                  update({ max_retries: null });
+                  return;
+                }
+                const n = Number(raw.replace(/\D/g, ''));
+                update({ max_retries: Number.isFinite(n) ? Math.floor(n) : 0 });
+              }}
+              inputMode="numeric"
+              placeholder="留空 = 无限重试"
               className={inputClass}
               spellCheck={false}
             />

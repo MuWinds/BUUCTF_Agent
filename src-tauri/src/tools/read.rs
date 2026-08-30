@@ -46,6 +46,16 @@ impl Tool for ReadTool {
          文件很大时用 offset/limit 分段读取。无法读取二进制文件。"
     }
 
+    fn prompt_contribution(&self) -> agent_core::PromptContribution {
+        agent_core::PromptContribution {
+            snippet: "读取文件内容，返回带行号的原文；大文件可分段读取。",
+            guidelines: &[
+                "需要了解代码时先用工具查看，不要凭猜测回答。",
+                "文件很大时用 offset/limit 分段读取，不要一次读整份。",
+            ],
+        }
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

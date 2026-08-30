@@ -56,12 +56,12 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 
 | 层 | 框架 | 数量 | 覆盖什么 |
 | --- | --- | --- | --- |
-| `agent-core` | `cargo test` | 30 | SSE 累加、轮次循环、会话投影、配置校验 |
-| `src-tauri` | `cargo test` | 89 | 各工具（bash / edit / grep / glob / read / write / diff）、路径边界、持久化 |
-| 端到端 | `cargo test --test e2e` | 12 | 真协议 + 真工具 + 真循环，断言推给 UI 的事件序列 |
+| `agent-core` | `cargo test` | 49 | SSE 累加、轮次循环、会话投影、配置校验、回退截断、自动压缩 |
+| `src-tauri` | `cargo test` | 99 | 各工具（bash / edit / grep / glob / read / write / diff）、路径边界、持久化 |
+| 端到端 | `cargo test --test e2e` | 18 | 真协议 + 真工具 + 真循环，断言推给 UI 的事件序列，含自动压缩链路 |
 | 文档示例 | `cargo test --doc` | 1 | `agent-core` 的 `lib.rs` 用例能编译 |
-| 前端 | `vitest` | 16 | session store 行为、事件映射、纯函数、样式书写约束 |
-| GUI | 人工 | 12 场景 | `docs/manual-gui-checklist.md`，只测自动化测不到的渲染与手感 |
+| 前端 | `vitest` | 28 | session store 行为、事件映射、纯函数、样式书写约束 |
+| GUI | 人工 | 14 场景 | `docs/manual-gui-checklist.md`，只测自动化测不到的渲染与手感 |
 
 ### 测试数据只有一份
 
@@ -117,6 +117,7 @@ crates/agent-core/        # 可复用核心，不依赖任何 GUI 框架
     accumulator.rs        # 工具调用分片的累加器
     types.rs              # 请求/响应结构
   turn.rs                 # 轮次循环，无状态函数，产出 TurnOutcome
+  compact.rs              # 长对话自动压缩：估算 token、折叠最老条目为摘要
   session.rs              # 会话唯一数据源；发给模型的消息由它投影得出
   sink.rs                 # EventSink trait + ThrottledSink（33ms 帧聚合）
   events.rs               # AgentEvent —— 前后端协议真源
@@ -125,6 +126,7 @@ crates/agent-core/        # 可复用核心，不依赖任何 GUI 框架
 src-tauri/src/            # 应用层：只做装配，无业务逻辑
   channel_sink.rs         # 把 core 的 EventSink 接到 Tauri Channel
   state.rs                # 会话历史、配置、取消令牌；系统提示词也在这
+  context_files.rs        # 从工作区向上收集 AGENTS.md / CLAUDE.md 注入系统提示词
   persist.rs  secret.rs   # 落盘 / 系统凭据管理器
   commands/               # Tauri command 薄层
   tools/                  # 工具实现（bash / edit / read / write / grep / glob / diff）

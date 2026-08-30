@@ -1,16 +1,7 @@
 import { create } from 'zustand';
-import {
-  cancelTurn,
-  deleteSession,
-  getSession,
-  listSessions,
-  newSession,
-  rewindSession,
-  sendMessage,
-  switchSession,
-} from '@/lib/ipc';
+import { cancelTurn, clearHistory, getSession, sendMessage } from '@/lib/ipc';
 import { errorMessage, type AgentEvent, type ToolResultBody } from '@/lib/events';
-import type { Session as PersistedSession, SessionSummary } from '@/lib/session';
+import type { Session as PersistedSession } from '@/lib/session';
 
 export type MessageStatus = 'streaming' | 'done' | 'cancelled' | 'error';
 export type ToolStatus = 'pending' | 'running' | 'ok' | 'error';
@@ -38,7 +29,7 @@ export type Segment = { kind: 'text'; text: string } | { kind: 'tool'; callId: s
 
 export interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'summary';
+  role: 'user' | 'assistant';
   segments: Segment[];
   tools: Record<string, ToolCall>;
   reasoning: string;
@@ -52,10 +43,6 @@ export interface Message {
     /** 距下一次重试的等待毫秒数，供 UI 提示「N 秒后重试」。 */
     retryAfterMs: number;
   } | null;
-  /** 对应的后端 Session.entries 索引。历史消息有，流式创建的无（尚未落盘）。 */
-  entryIndex?: number;
-  /** 自动压缩的摘要正文。role === 'summary' 时存在。 */
-  summary?: string;
 }
 
 export interface Usage {
@@ -76,37 +63,22 @@ interface SessionState {
   usage: Usage | null;
   /** 是否已从 Rust 侧加载过历史会话。 */
   restored: boolean;
-  /** 当前工作区的会话列表，按最近更新排序。 */
-  sessions: SessionSummary[];
-  /** 正在编辑的会话 id，用于列表里标出当前项。 */
-  currentSessionId: string;
   restore: () => Promise<void>;
-  /** 拉取会话列表。轮次结束、切换工作区后调用，保持列表与磁盘一致。 */
-  refreshSessions: () => Promise<void>;
-  /** 切换到某段历史会话并载入其内容。 */
-  switchTo: (id: string) => Promise<void>;
-  /** 新建一段空会话并切换过去，旧会话保留在磁盘上。 */
-  createNew: () => Promise<void>;
-  /** 删除一段会话。删除当前会话时界面回到空会话。 */
-  remove: (id: string) => Promise<void>;
-  /** 回退/分叉：截断到第 entryIndex 条消息，旧分支保留在会话列表里。 */
-  rewindTo: (entryIndex: number) => Promise<void>;
   send: (text: string) => Promise<void>;
   stop: () => Promise<void>;
+  reset: () => Promise<void>;
 }
 
 /**
  * 把持久化的会话还原成界面消息。
  *
  * `system` 条目不显示 —— 它是给模型的指令，不是对话内容。
- * `summary` 条目渲染成折叠的压缩提示。每条消息记录对应的
- * `Session.entries` 索引，回退/分叉时据此定位截断点。
  */
 function toMessages(session: PersistedSession): Message[] {
   const messages: Message[] = [];
 
-  session.entries.forEach((entry, entryIndex) => {
-    if (entry.role === 'system') return;
+  for (const entry of session.entries) {
+    if (entry.role === 'system') continue;
 
     if (entry.role === 'user') {
       messages.push({
@@ -117,24 +89,8 @@ function toMessages(session: PersistedSession): Message[] {
         reasoning: '',
         status: 'done',
         retrying: null,
-        entryIndex,
       });
-      return;
-    }
-
-    if (entry.role === 'summary') {
-      messages.push({
-        id: crypto.randomUUID(),
-        role: 'summary',
-        segments: [],
-        tools: {},
-        reasoning: '',
-        status: 'done',
-        retrying: null,
-        entryIndex,
-        summary: entry.text,
-      });
-      return;
+      continue;
     }
 
     const tools: Record<string, ToolCall> = {};
@@ -164,9 +120,8 @@ function toMessages(session: PersistedSession): Message[] {
       reasoning: entry.reasoning ?? '',
       status: entry.status,
       retrying: null,
-      entryIndex,
     });
-  });
+  }
 
   return messages;
 }
@@ -271,8 +226,6 @@ export const useSession = create<SessionState>((set, get) => ({
   model: '',
   usage: null,
   restored: false,
-  sessions: [],
-  currentSessionId: '',
 
   /** 启动时从 Rust 侧还原上次的会话。 */
   async restore() {
@@ -290,50 +243,6 @@ export const useSession = create<SessionState>((set, get) => ({
       console.warn('恢复会话失败', e);
       set({ restored: true });
     }
-    // 无论成不成都刷新列表：会话可能为空，但工作区里也许有历史
-    await get().refreshSessions();
-  },
-
-  async refreshSessions() {
-    try {
-      const list = await listSessions();
-      set({ sessions: list.sessions, currentSessionId: list.current_id });
-    } catch (e) {
-      console.warn('拉取会话列表失败', e);
-    }
-  },
-
-  async switchTo(id: string) {
-    await switchSession(id);
-    const session = await getSession();
-    discardPending();
-    set({ messages: toMessages(session), streaming: false, usage: null });
-    await get().refreshSessions();
-  },
-
-  async createNew() {
-    await newSession();
-    discardPending();
-    set({ messages: [], streaming: false, usage: null });
-    await get().refreshSessions();
-  },
-
-  async remove(id: string) {
-    const wasCurrent = id === get().currentSessionId;
-    await deleteSession(id);
-    if (wasCurrent) {
-      discardPending();
-      set({ messages: [], streaming: false, usage: null });
-    }
-    await get().refreshSessions();
-  },
-
-  async rewindTo(entryIndex: number) {
-    await rewindSession(entryIndex);
-    const session = await getSession();
-    discardPending();
-    set({ messages: toMessages(session), streaming: false, usage: null });
-    await get().refreshSessions();
   },
 
   async send(text: string) {
@@ -385,13 +294,17 @@ export const useSession = create<SessionState>((set, get) => ({
             : { ...m, status: 'done' as const };
         }),
       }));
-      // 标题、消息数、更新时间都变了，同步一下列表
-      await get().refreshSessions();
     }
   },
 
   async stop() {
     await cancelTurn();
+  },
+
+  async reset() {
+    await clearHistory();
+    discardPending();
+    set({ messages: [], streaming: false, usage: null });
   },
 }));
 
@@ -511,33 +424,5 @@ function handleEvent(event: AgentEvent) {
       flushNow();
       setLastStatus('error', event.message);
       break;
-
-    case 'context_compacted': {
-      // 压缩发生在 Rust 侧、TurnStart 之前。此时消息列表末尾是刚乐观创建的
-      // user + assistant 占位（都还没有 entryIndex），被压缩掉的是它们之前
-      // 的 removed_entries 条历史消息。把这些历史替换成一条摘要气泡。
-      const removed = event.removed_entries;
-      useSession.setState((s) => {
-        const messages = s.messages;
-        const streaming = s.streaming;
-        // 流式进行中末尾两条（user + assistant 占位）不属于被压缩的历史
-        const tail = streaming ? 2 : 0;
-        const history = messages.slice(0, messages.length - tail);
-        const suffix = messages.slice(messages.length - tail);
-        const kept = history.length <= removed ? [] : history.slice(removed);
-        const bubble: Message = {
-          id: crypto.randomUUID(),
-          role: 'summary',
-          segments: [],
-          tools: {},
-          reasoning: '',
-          status: 'done',
-          retrying: null,
-          summary: event.summary,
-        };
-        return { messages: [bubble, ...kept, ...suffix] };
-      });
-      break;
-    }
   }
 }

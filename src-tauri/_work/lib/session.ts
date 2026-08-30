@@ -24,7 +24,6 @@ export type SessionSegment =
 export type SessionEntry =
   | { role: 'system'; text: string }
   | { role: 'user'; text: string }
-  | { role: 'summary'; text: string }
   | {
       role: 'assistant';
       segments: SessionSegment[];
@@ -36,22 +35,4 @@ export type SessionEntry =
 
 export interface Session {
   entries: SessionEntry[];
-}
-
-/** 列表页用到的会话摘要，不含正文。与 Rust 侧 `SessionSummary` 对齐。 */
-export interface SessionSummary {
-  id: string;
-  title: string;
-  workspace: string;
-  model: string;
-  /** Unix 毫秒。 */
-  created_at: number;
-  updated_at: number;
-  message_count: number;
-}
-
-/** `list_sessions` 的返回：当前会话 id + 全部摘要。 */
-export interface SessionList {
-  current_id: string;
-  sessions: SessionSummary[];
 }

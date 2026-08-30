@@ -33,7 +33,7 @@
         {
           "id": "call_edit_1",
           "name": "Edit",
-          "arguments": "{\"path\": \"src/app.ts\", \"old_string\": \"const GREETING = 'hello world';\", \"new_string\": \"const GREETING = '你好，世界';\"}"
+          "arguments": "{\"path\": \"src/app.ts\", \"edits\": [{\"old_string\": \"const GREETING = 'hello world';\", \"new_string\": \"const GREETING = '你好，世界';\"}]}"
         }
       ],
       "finishReason": "tool_calls",

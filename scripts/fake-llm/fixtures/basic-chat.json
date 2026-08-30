@@ -15,7 +15,7 @@
         "- `src` —— React 前端\n\n",
         "核心循环长这样：\n\n",
         "```rust\n",
-        "for round in 0..MAX_TOOL_ROUNDS {\n",
+        "for {\n",
         "    let step = request(...).await?;\n",
         "    if step.calls.is_empty() { break; }\n",
         "}\n",
