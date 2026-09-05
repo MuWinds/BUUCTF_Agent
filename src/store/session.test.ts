@@ -526,4 +526,38 @@ describe('useSession 上下文压缩', () => {
     expect(messages[2]?.role).toBe('assistant');
     expect(messages[2]?.segments[0]).toEqual({ kind: 'text', text: '新回答' });
   });
+
+  it('思维链、文本与工具调用严格按时间线顺序记录在 segments 中', async () => {
+    ipc.steps = [
+      turnStart,
+      { type: 'reasoning_delta', turn_id: 't1', text: '先想一想' },
+      'frame',
+      { type: 'assistant_delta', turn_id: 't1', text: '先看文件' },
+      'frame',
+      { type: 'tool_call_start', turn_id: 't1', call_id: 'c1', name: 'Read' },
+      {
+        type: 'tool_result',
+        turn_id: 't1',
+        call_id: 'c1',
+        ok: true,
+        duration_ms: 10,
+        result: { kind: 'text', content: '内容' },
+      },
+      { type: 'reasoning_delta', turn_id: 't1', text: '再想一想' },
+      'frame',
+      { type: 'assistant_delta', turn_id: 't1', text: '结论如下' },
+      'frame',
+      turnEnd,
+    ];
+    await useSession.getState().send('执行');
+
+    const msg = lastMessage();
+    expect(msg.segments).toEqual([
+      { kind: 'reasoning', text: '先想一想' },
+      { kind: 'text', text: '先看文件' },
+      { kind: 'tool', callId: 'c1' },
+      { kind: 'reasoning', text: '再想一想' },
+      { kind: 'text', text: '结论如下' },
+    ]);
+  });
 });

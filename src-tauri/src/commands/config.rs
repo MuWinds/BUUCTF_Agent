@@ -5,8 +5,8 @@ use agent_core::{Error, LlmConfig, Result};
 use serde::Serialize;
 use tauri::State;
 
-use crate::secret;
 use crate::state::AppState;
+use agent_host::secret;
 
 #[tauri::command]
 pub async fn get_llm_config(state: State<'_, AppState>) -> Result<LlmConfig> {

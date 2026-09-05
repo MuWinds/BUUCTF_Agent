@@ -36,7 +36,10 @@ export interface ToolCall {
  * 一条 assistant 消息里文本和工具调用是交错的（循环里每轮都可能先说话再调工具），
  * 用「文本 + 工具列表」两个扁平数组渲染会丢失顺序，所以按到达顺序存成片段。
  */
-export type Segment = { kind: 'text'; text: string } | { kind: 'tool'; callId: string };
+export type Segment =
+  | { kind: 'reasoning'; text: string }
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; callId: string };
 
 export interface Message {
   id: string;
@@ -158,6 +161,9 @@ function toMessages(session: PersistedSession): Message[] {
 
     const tools: Record<string, ToolCall> = {};
     const segments: Segment[] = entry.segments.map((segment) => {
+      if (segment.kind === 'reasoning') {
+        return { kind: 'reasoning', text: segment.text };
+      }
       if (segment.kind === 'text') {
         return { kind: 'text', text: segment.text };
       }
@@ -175,10 +181,17 @@ function toMessages(session: PersistedSession): Message[] {
       return { kind: 'tool', callId: record.call_id };
     });
 
+    // 兼容旧会话：若 segments 里没有 reasoning 但 entry.reasoning 存在，前置一条
+    const hasReasoningSegment = segments.some((s) => s.kind === 'reasoning');
+    const finalSegments =
+      !hasReasoningSegment && entry.reasoning
+        ? [{ kind: 'reasoning' as const, text: entry.reasoning }, ...segments]
+        : segments;
+
     messages.push({
       id: crypto.randomUUID(),
       role: 'assistant',
-      segments,
+      segments: finalSegments,
       tools,
       reasoning: entry.reasoning ?? '',
       status: entry.status,
@@ -212,14 +225,32 @@ function commitPending() {
   pendingReasoning = '';
   if (!text && !reasoning) return;
 
-  patchActive((m) => ({
-    ...m,
-    reasoning: m.reasoning + reasoning,
-    segments: text ? appendText(m.segments, text) : m.segments,
-  }));
+  patchActive((m) => {
+    let segments = m.segments;
+    if (reasoning) {
+      segments = appendReasoning(segments, reasoning);
+    }
+    if (text) {
+      segments = appendText(segments, text);
+    }
+    return {
+      ...m,
+      reasoning: m.reasoning + reasoning,
+      segments,
+    };
+  });
 }
 
-/** 把文本并入最后一个文本片段；末尾是工具卡片时另起一段。 */
+/** 把思维链并入最后一个思维链片段；末尾是工具或正文时另起一段。 */
+function appendReasoning(segments: Segment[], text: string): Segment[] {
+  const last = segments[segments.length - 1];
+  if (last?.kind === 'reasoning') {
+    return [...segments.slice(0, -1), { kind: 'reasoning', text: last.text + text }];
+  }
+  return [...segments, { kind: 'reasoning', text }];
+}
+
+/** 把文本并入最后一个文本片段；末尾是工具卡片或思维链时另起一段。 */
 function appendText(segments: Segment[], text: string): Segment[] {
   const last = segments[segments.length - 1];
   if (last?.kind === 'text') {
@@ -578,18 +609,24 @@ function handleEvent(event: AgentEvent) {
 
     case 'assistant_delta':
       clearRetrying();
+      if (pendingReasoning) {
+        flushNow();
+      }
       pendingText += event.text;
       scheduleFlush();
       break;
 
     case 'reasoning_delta':
       clearRetrying();
+      if (pendingText) {
+        flushNow();
+      }
       pendingReasoning += event.text;
       scheduleFlush();
       break;
 
     case 'tool_call_start': {
-      // 先把缓冲的文本落地，工具卡片才能排在它后面而不是前面
+      // 先把缓冲的文本与思维链落地，工具卡片才能排在它们后面而不是前面
       clearRetrying();
       flushNow();
       const call: ToolCall = {

@@ -29,6 +29,7 @@
 *.swp
 .DS_Store
 Thumbs.db
+/nul
 
 *.log
 npm-debug.log*

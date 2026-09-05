@@ -138,6 +138,9 @@ pub async fn run(
             session.record_context_used(usage.last_prompt);
         }
 
+        if !step.reasoning.is_empty() {
+            session.push_reasoning_segment(&step.reasoning);
+        }
         session.push_reasoning(&step.reasoning);
         // 每次请求一段，投影时按条回传给 DeepSeek 这类 thinking 模式
         session.push_reasoning_round(&step.reasoning);

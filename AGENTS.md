@@ -56,8 +56,10 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 
 | 层 | 框架 | 数量 | 覆盖什么 |
 | --- | --- | --- | --- |
-| `agent-core` | `cargo test` | 49 | SSE 累加、轮次循环、会话投影、配置校验、回退截断、自动压缩 |
-| `src-tauri` | `cargo test` | 99 | 各工具（bash / edit / grep / glob / read / write / diff）、路径边界、持久化 |
+| `agent-core` | `cargo test` | 56 | SSE 累加、轮次循环、会话投影、配置校验、回退截断、自动压缩 |
+| `agent-host` | `cargo test` | 107 | 各工具（bash / edit / grep / glob / read / write / diff）、路径边界、持久化、凭据、上下文文件 |
+| `agent-tui` | `cargo test` | 16 | 事件→展示模型映射、工具卡片生命周期、流式 markdown、输入编辑、真服务端到端链路、取消 |
+| `src-tauri` | `cargo test` | 0 | 纯装配层无业务逻辑，工具/持久化测试已随实现迁入 `agent-host` |
 | 端到端 | `cargo test --test e2e` | 18 | 真协议 + 真工具 + 真循环，断言推给 UI 的事件序列，含自动压缩链路 |
 | 文档示例 | `cargo test --doc` | 1 | `agent-core` 的 `lib.rs` 用例能编译 |
 | 前端 | `vitest` | 28 | session store 行为、事件映射、纯函数、样式书写约束 |
@@ -101,11 +103,13 @@ fixture。透传而非缓冲，应用才会照常执行真工具、照常发起�
 
 | 改了什么 | 至少要跑 |
 | --- | --- |
-| 工具实现（`src-tauri/src/tools/`） | `cargo test --workspace` |
+| 工具实现（`crates/agent-host/src/tools/`） | `cargo test --workspace` |
 | 事件协议（`events.rs` + `events.ts`） | 两侧都改 + `pnpm check` + `cargo test` |
 | 前端 store / 纯函数 | `pnpm check` |
 | LLM 请求响应结构 | `cargo test -p agent-core` + `cargo test --test e2e` |
-| UI 呈现 | `pnpm fake-llm` + `pnpm tauri dev`，照 `docs/manual-gui-checklist.md` 走 |
+| TUI 事件映射 / 状态机 | `cargo test -p agent-tui` |
+| GUI 呈现 | `pnpm fake-llm` + `pnpm tauri dev`，照 `docs/manual-gui-checklist.md` 走 |
+| TUI 呈现 | `pnpm fake-llm` + `cargo run -p agent-tui`，真终端里看 |
 
 ---
 
@@ -123,13 +127,25 @@ crates/agent-core/        # 可复用核心，不依赖任何 GUI 框架
   events.rs               # AgentEvent —— 前后端协议真源
   config.rs  error.rs  tools.rs
 
-src-tauri/src/            # 应用层：只做装配，无业务逻辑
-  channel_sink.rs         # 把 core 的 EventSink 接到 Tauri Channel
-  state.rs                # 会话历史、配置、取消令牌；系统提示词也在这
-  context_files.rs        # 从工作区向上收集 AGENTS.md / CLAUDE.md 注入系统提示词
-  persist.rs  secret.rs   # 落盘 / 系统凭据管理器
-  commands/               # Tauri command 薄层
+crates/agent-host/        # 宿主共享层：与 GUI 无关，桌面版与终端版共用
   tools/                  # 工具实现（bash / edit / read / write / grep / glob / diff）
+  persist.rs              # 按工作区归档的多会话落盘
+  context_files.rs        # 从工作区向上收集 AGENTS.md / CLAUDE.md 注入系统提示词
+  secret.rs               # 系统凭据管理器（keyring，三平台）
+  lib.rs                  # 系统提示词组装
+
+crates/agent-tui/         # 终端版（参考 openai/codex 的 TUI 架构，同进程简化版）
+  main.rs                 # 入口：参数解析、终端初始化、日志
+  app.rs                  # 主循环（select! 三路事件源）+ 事件→展示模型 + 渲染
+  markdown.rs             # 流式增量渲染（stable/tail 两区域模型的简化版）
+  terminal.rs             # crossterm 生命周期（raw mode / 备屏 / 键盘增强）
+  sink.rs                 # EventSink → mpsc channel
+  config.rs               # TOML 配置加载 + 凭据解析
+
+src-tauri/src/            # Tauri 装配层：只做 command/channel 接线，无业务逻辑
+  channel_sink.rs         # 把 core 的 EventSink 接到 Tauri Channel
+  state.rs                # 会话历史、配置、取消令牌
+  commands/               # Tauri command 薄层
 src-tauri/tests/e2e.rs    # 端到端测试：真协议 + 真工具 + 真循环
 
 scripts/fake-llm/         # 假 LLM 服务端（零依赖 node:http）
@@ -139,7 +155,7 @@ scripts/fake-llm/         # 假 LLM 服务端（零依赖 node:http）
 
 docs/manual-gui-checklist.md   # GUI 人工测试清单
 
-src/                      # React 前端
+src/                      # React 前端（Tauri 版）
   lib/events.ts           # 与 core 的 events.rs 手工对齐
   lib/ipc.ts              # invoke 封装
   store/                  # zustand：session（含 rAF 缓冲）、config、workspace
@@ -147,8 +163,14 @@ src/                      # React 前端
   components/  pages/  styles/
 ```
 
-数据流：`Composer` → `send_message` command → `turn::run` → `ThrottledSink` →
+数据流（Tauri 版）：`Composer` → `send_message` command → `turn::run` → `ThrottledSink` →
 `ChannelSink` → Tauri Channel → `session.ts` 的 rAF 缓冲 → React。
+
+数据流（TUI 版）：`App::send_input` → spawn task 跑 `turn::run` → `ChannelSink` →
+mpsc → 主循环 `select!` → 事件应用到展示模型 → ratatui 渲染。
+`turn::run` 独占 `&mut Session` 一整轮，期间 UI 从事件流维护展示条目，
+轮次结束 task 把最终 Session 送回、重建 —— 与 Tauri 版前端从事件流
+维护 React 状态同构。
 
 ### 不可动摇的架构约束
 
@@ -164,8 +186,10 @@ src/                      # React 前端
 ### 分层约定
 
 - **core 不依赖 GUI**：`agent-core` 里出现 `tauri::` 就是错的。事件出口走 `EventSink` trait。
-- **工具实现留在应用层**：权限边界与 UI 呈现和宿主强相关。
+- **工具实现留在宿主层**：权限边界与 UI 呈现和宿主强相关。现在有两个宿主
+  （`src-tauri` 与 `agent-tui`），共享实现放 `agent-host`，宿主各自做装配。
 - **事件协议双向手工同步**：改 `events.rs` 必须同步改 `src/lib/events.ts`。
+  TUI 直接消费 Rust 侧事件，不经过序列化，无同步负担。
   serde 的 `rename_all` 只作用于变体名，字段保持 snake_case。
 - **响应侧字段一律 `Option`**：兼容网关（vLLM/DeepSeek/各类中转）缺字段是常态，
   不该让整条流解析失败。

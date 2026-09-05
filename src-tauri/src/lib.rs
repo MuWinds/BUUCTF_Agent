@@ -1,7 +1,8 @@
 //! 应用装配入口。
 //!
 //! 这一层只做三件事：把 core 的能力接到 Tauri 的 command/channel 上、
-//! 持有会话状态、初始化日志。业务逻辑在 `agent-core`。
+//! 持有会话状态、初始化日志。业务逻辑在 `agent-core`，工具与存储等
+//! 共享实现在 `agent-host`。
 
 // MSVC 链接器在中文系统上会往 stdout 打一行「正在创建库…」，
 // Rust 1.98 的 linker_messages lint 会把它当成警告。纯环境噪音，
@@ -10,13 +11,10 @@
 
 mod channel_sink;
 mod commands;
-mod context_files;
-mod persist;
-mod secret;
 mod state;
 // 对外可见仅为了让 `tests/e2e.rs` 能装配一份真实的工具注册表。
-// 端到端测试若改用桩工具就失去意义，而工具实现按架构约定必须留在应用层。
-pub mod tools;
+// 端到端测试若改用桩工具就失去意义，而工具实现按架构约定留在宿主层。
+pub use agent_host::tools;
 
 /// 启动 Tauri 应用。
 ///
@@ -41,7 +39,8 @@ pub fn run() {
             tauri::async_runtime::block_on(async {
                 let workspace = state.workspace_root.read().await.clone();
                 let model = state.config.read().await.model.clone();
-                let (session, session_id) = persist::bootstrap(&app_data, &workspace, &model).await;
+                let (session, session_id) =
+                    agent_host::persist::bootstrap(&app_data, &workspace, &model).await;
                 *state.session.lock().await = session;
                 *state.session_id.write().await = session_id;
             });

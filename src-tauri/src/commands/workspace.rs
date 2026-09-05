@@ -40,7 +40,8 @@ pub async fn set_workspace(state: State<'_, AppState>, path: String) -> Result<S
 
     // 载入新工作区最近一次的会话；没有历史就开一段新的
     let model = state.config.read().await.model.clone();
-    let (session, session_id) = crate::persist::bootstrap(&state.app_data, &cleaned, &model).await;
+    let (session, session_id) =
+        agent_host::persist::bootstrap(&state.app_data, &cleaned, &model).await;
     *state.session.lock().await = session;
     *state.session_id.write().await = session_id;
 

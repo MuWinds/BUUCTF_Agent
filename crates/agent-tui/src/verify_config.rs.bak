@@ -1,0 +1,12 @@
+#[test]
+fn loads_real_user_config_from_home_coding_agents() {
+    // 用户机器上 ~/.coding-agents/config.toml 真实存在，
+    // load(None) 必须读到它而不是默认值。
+    let home = dirs::home_dir().unwrap();
+    let cfg_path = home.join(".coding-agents").join("config.toml");
+    assert!(cfg_path.exists(), "测试前提：用户配置存在 {cfg_path:?}");
+    let config = super::load(None).unwrap();
+    assert_eq!(config.base_url, "https://tokenrhythm.studio/v1");
+    assert_eq!(config.model, "deepseek-v4-flash-0731");
+    assert_eq!(config.max_retries, None, "-1 应映射为无限重试");
+}

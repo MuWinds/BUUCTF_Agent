@@ -86,6 +86,11 @@ impl ThrottledSink {
     }
 
     pub fn push_text(&mut self, delta: &str) {
+        // 跨流保护：若此前有思维链滞留未发，开始正文前必须先冲刷干净，
+        // 否则思维链末尾的 token 会滞后到正文甚至工具之后才送达。
+        if !self.reasoning.pending.is_empty() {
+            self.flush_reasoning();
+        }
         self.text.pending.push_str(delta);
         if self.text.should_flush() {
             self.flush_text();
@@ -93,6 +98,10 @@ impl ThrottledSink {
     }
 
     pub fn push_reasoning(&mut self, delta: &str) {
+        // 跨流保护：若此前有正文滞留未发，开始思维链前先冲刷干净。
+        if !self.text.pending.is_empty() {
+            self.flush_text();
+        }
         self.reasoning.pending.push_str(delta);
         if self.reasoning.should_flush() {
             self.flush_reasoning();

@@ -19,7 +19,9 @@ export interface SessionToolRecord {
 }
 
 export type SessionSegment =
-  { kind: 'text'; text: string } | { kind: 'tool'; call: SessionToolRecord };
+  | { kind: 'reasoning'; text: string }
+  | { kind: 'text'; text: string }
+  | { kind: 'tool'; call: SessionToolRecord };
 
 export type SessionEntry =
   | { role: 'system'; text: string }

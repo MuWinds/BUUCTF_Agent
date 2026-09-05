@@ -8,8 +8,9 @@ use tauri::State;
 use tokio_util::sync::CancellationToken;
 
 use crate::channel_sink::ChannelSink;
-use crate::persist::{self, SessionList};
-use crate::state::{system_prompt, ActiveTurn, AppState, DEFAULT_SESSION_ID};
+use crate::state::{ActiveTurn, AppState, DEFAULT_SESSION_ID};
+use agent_host::persist::{self, SessionList};
+use agent_host::system_prompt;
 
 /// 发送一条用户消息并驱动一个轮次。
 ///

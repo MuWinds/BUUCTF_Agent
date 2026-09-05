@@ -17,10 +17,12 @@ export const AssistantMessage = memo(
 
     return (
       <div className="px-6 py-4">
-        {message.reasoning && <ReasoningBlock text={message.reasoning} streaming={streaming} />}
-
         <div className="text-[15px] text-(--fg)">
           {message.segments.map((segment, i) => {
+            if (segment.kind === 'reasoning') {
+              const isLast = i === message.segments.length - 1;
+              return <ReasoningBlock key={i} text={segment.text} streaming={streaming && isLast} />;
+            }
             if (segment.kind === 'tool') {
               const call = message.tools[segment.callId];
               return call ? <ToolCard key={segment.callId} call={call} /> : null;

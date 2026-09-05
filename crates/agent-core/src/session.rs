@@ -63,6 +63,7 @@ pub enum Entry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Segment {
+    Reasoning { text: String },
     Text { text: String },
     Tool { call: ToolRecord },
 }
@@ -130,6 +131,22 @@ impl Session {
     pub fn record_context_used(&mut self, prompt_tokens: u32) {
         if let Some(Entry::Assistant { context_used, .. }) = self.entries.last_mut() {
             *context_used = Some(prompt_tokens);
+        }
+    }
+
+    /// 追加思维链片段。并入最后一个思维链片段；末尾是工具或正文则另起一段。
+    pub fn push_reasoning_segment(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        let Some(segments) = self.current_segments() else {
+            return;
+        };
+        match segments.last_mut() {
+            Some(Segment::Reasoning { text: existing }) => existing.push_str(text),
+            _ => segments.push(Segment::Reasoning {
+                text: text.to_string(),
+            }),
         }
     }
 
@@ -320,6 +337,12 @@ fn project_assistant(
 
     for segment in segments {
         match segment {
+            Segment::Reasoning { .. } => {
+                // 工具组之后出现思维链，说明进入了下一轮，先把上一轮收口
+                if !pending.is_empty() {
+                    flush(&mut batch, &mut text, &mut pending, messages);
+                }
+            }
             Segment::Text { text: chunk } => {
                 // 工具组之后又出现文本，说明进入了下一轮，先把上一轮收口
                 if !pending.is_empty() {
@@ -465,6 +488,34 @@ mod tests {
             panic!("应当是助手条目");
         };
         assert_eq!(segments.len(), 3);
+    }
+
+    /// 思维链与文本和工具交错时，必须保留在 segments 时间线上且投影正确。
+    #[test]
+    fn reasoning_segments_interleave_with_tools_and_text() {
+        let mut session = Session::default();
+        session.start_assistant();
+        session.push_reasoning_segment("思考 1");
+        session.push_text("说话 1");
+        session.push_tool(record("c1", "Read", "x"));
+        session.push_reasoning_segment("思考 2");
+        session.push_text("说话 2");
+
+        let Some(Entry::Assistant { segments, .. }) = session.entries.last() else {
+            panic!("应当是助手条目");
+        };
+        assert_eq!(segments.len(), 5);
+        assert!(matches!(&segments[0], Segment::Reasoning { text } if text == "思考 1"));
+        assert!(matches!(&segments[1], Segment::Text { text } if text == "说话 1"));
+        assert!(matches!(&segments[2], Segment::Tool { .. }));
+        assert!(matches!(&segments[3], Segment::Reasoning { text } if text == "思考 2"));
+        assert!(matches!(&segments[4], Segment::Text { text } if text == "说话 2"));
+
+        let messages = session.to_messages();
+        assert_eq!(
+            roles(&messages),
+            vec![Role::Assistant, Role::Tool, Role::Assistant]
+        );
     }
 
     #[test]

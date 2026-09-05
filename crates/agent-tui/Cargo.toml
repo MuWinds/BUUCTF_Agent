@@ -1,0 +1,45 @@
+[package]
+name = "agent-tui"
+version = "0.1.0"
+description = "终端版 Coding Agent（参考 openai/codex 的 TUI 架构）"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "agent-tui"
+path = "src/main.rs"
+
+[dependencies]
+agent-core = { path = "../agent-core" }
+agent-host = { path = "../agent-host" }
+
+# TUI 框架与终端抽象。crossterm 自带三平台（Windows / macOS / Linux）支持：
+# Windows 上通过虚拟终端序列启用 ANSI 处理，bracketed-paste 用于安全粘贴。
+ratatui = "0.30.2"
+crossterm = { version = "0.29.0", features = ["event-stream", "bracketed-paste"] }
+
+# Markdown 渲染：pull parser，逐事件产出 ratatui Line，不做 DOM 中间表示。
+pulldown-cmark = "0.13.4"
+
+# CJK 宽度处理：`unicode_width` 是 ratatui 依赖，这里直接复用它算折行。
+unicode-width = "0.2"
+unicode-segmentation = "1"
+textwrap = "0.16"
+
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tokio-stream = "0.1"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"
+toml = "0.8"
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"
+
+[dev-dependencies]
+command-group = { version = "5.0.1", features = ["with-tokio"] }
